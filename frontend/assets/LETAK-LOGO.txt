@@ -1,0 +1,2 @@
+Taruh logo kamu di sini dengan nama:  logo.png  (atau logo.svg lalu ubah FOODCOURT_LOGO di config.js)
+Saran: PNG transparan, tinggi >= 120px, bentuk melebar. Kalau file belum ada, otomatis tampil ikon bawaan.

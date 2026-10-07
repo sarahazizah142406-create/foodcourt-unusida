@@ -1,0 +1,105 @@
+/* Dashboard kantin — nyaman di HP, tablet (kasir), dan desktop */
+.wrap { width: 100%; max-width: 1180px; margin: 0 auto; padding: 0 16px; }
+.top { position: sticky; top: 0; z-index: 30; background: rgba(246, 240, 228, .94); backdrop-filter: blur(10px); border-bottom: 1px solid var(--line); }
+.top .row { display: flex; align-items: center; gap: 12px; min-height: 62px; }
+.who { display: flex; align-items: center; gap: 10px; min-width: 0; flex: 1; }
+.who .logo { width: 38px; height: 38px; border-radius: 11px; background: var(--brand); color: #fff; display: grid; place-items: center; flex: none; }
+.who h1 { font-size: 16px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.who small { color: var(--muted); font-size: 12.5px; display: block; }
+.open-switch { display: inline-flex; align-items: center; gap: 8px; background: var(--surface); border: 1px solid var(--line); border-radius: 999px; padding: 4px 12px 4px 4px; font-weight: 600; font-size: 13.5px; }
+.open-switch .knob { width: 34px; height: 22px; border-radius: 999px; background: #CFCDC3; position: relative; transition: background .2s; }
+.open-switch .knob::after { content: ""; position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; border-radius: 50%; background: #fff; transition: transform .2s; box-shadow: 0 1px 2px rgba(0,0,0,.25); }
+.open-switch.on .knob { background: var(--brand); }
+.open-switch.on .knob::after { transform: translateX(12px); }
+.nav-row { padding-bottom: 8px; }
+.top .tabs .tab .ico { width: 18px; height: 18px; }
+main { padding: 20px 0 48px; }
+
+.section-title { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 22px 0 12px; }
+.section-title h2 { font-size: 18px; }
+
+/* Ringkasan */
+.stats { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+@media (min-width: 760px) { .stats { grid-template-columns: repeat(4, 1fr); gap: 14px; } }
+.stat { padding: 14px 16px; }
+.stat .k { color: var(--muted); font-size: 12.5px; font-weight: 600; display: flex; align-items: center; gap: 6px; }
+.stat .v { font-size: 24px; font-weight: 700; margin-top: 4px; letter-spacing: -.01em; }
+.stat.money { background: var(--brand); border-color: var(--brand); color: #fff; }
+.stat.money .k { color: rgba(255,255,255,.8); }
+.stat .s { font-size: 12px; opacity: .8; margin-top: 2px; }
+
+/* Pesanan */
+.orders { display: grid; gap: 14px; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); align-items: start; }
+.order { padding: 16px; }
+.order.new { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(242, 163, 58, .25); }
+.o-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; }
+.o-q { font-size: 30px; font-weight: 700; line-height: 1; letter-spacing: .01em; }
+.o-q small { font-size: 13px; color: var(--muted); font-weight: 600; margin-right: 2px; }
+.o-meta { color: var(--muted); font-size: 13px; margin-top: 6px; display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+.o-meta b { color: var(--text); }
+.o-items { margin: 14px 0 0; padding: 12px 0; border-top: 1px dashed var(--line); border-bottom: 1px dashed var(--line); display: grid; gap: 6px; }
+.o-items .it { display: flex; gap: 10px; }
+.o-items .it b { min-width: 30px; color: var(--brand-dark); }
+.o-note { margin-top: 12px; background: var(--warn-soft); color: var(--warn); padding: 8px 12px; border-radius: 10px; font-size: 13.5px; font-weight: 500; display: flex; gap: 8px; }
+.o-total { display: flex; justify-content: space-between; margin-top: 12px; font-weight: 700; }
+.o-pay { margin-top: 12px; padding: 10px 12px; border-radius: 12px; background: var(--warn-soft); display: grid; gap: 8px; }
+.o-pay.paid { background: var(--brand-soft); color: var(--brand-dark); font-weight: 600; display: flex; align-items: center; gap: 8px; }
+.o-pay .claim { color: var(--info); font-weight: 600; font-size: 13px; display: flex; gap: 6px; align-items: center; }
+.o-actions { display: flex; gap: 8px; margin-top: 12px; }
+.o-actions .btn:first-child { flex: 1; }
+.pills { display: flex; gap: 6px; margin-top: 12px; }
+.pill { flex: 1; height: 6px; border-radius: 99px; background: #E6E4DC; }
+.pill.on { background: var(--brand); }
+.s-diterima { background: var(--info-soft); color: var(--info); }
+.s-diproses { background: var(--warn-soft); color: var(--warn); }
+.s-siap { background: var(--brand-soft); color: var(--brand-dark); }
+.s-diambil { background: #EEEDE6; color: var(--muted); }
+
+/* Menu */
+.toolbar { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+.toolbar .search { flex: 1; min-width: 200px; }
+.menu-list { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); }
+.menu-card { display: flex; gap: 12px; align-items: center; padding: 12px; }
+.menu-card .thumb { width: 72px; height: 72px; border-radius: 12px; overflow: hidden; flex: none; }
+.menu-card .thumb img { width: 100%; height: 100%; object-fit: cover; }
+.menu-card .thumb .ph { width: 100%; height: 100%; }
+.menu-card .info { flex: 1; min-width: 0; }
+.menu-card h4 { font-size: 15px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.menu-card .price { color: var(--brand-dark); font-weight: 700; }
+.menu-card.sold .thumb, .menu-card.sold .info { opacity: .55; }
+.menu-card .acts { display: grid; gap: 6px; justify-items: end; }
+.row-acts { display: flex; gap: 6px; }
+.switch { position: relative; width: 46px; height: 26px; border-radius: 99px; border: 0; background: #CFCDC3; transition: background .2s; padding: 0; flex: none; }
+.switch::after { content: ""; position: absolute; top: 3px; left: 3px; width: 20px; height: 20px; border-radius: 50%; background: #fff; transition: transform .2s; box-shadow: 0 1px 3px rgba(0,0,0,.25); }
+.switch.on { background: var(--brand); }
+.switch.on::after { transform: translateX(20px); }
+
+/* Laporan */
+.range { display: flex; flex-wrap: wrap; gap: 10px; align-items: end; }
+.range .field { margin: 0; }
+.bars { padding: 16px; display: grid; gap: 10px; }
+.bar-row { display: grid; grid-template-columns: 96px 1fr auto; gap: 12px; align-items: center; font-size: 13.5px; }
+.bar-track { height: 10px; background: #EEEDE6; border-radius: 99px; overflow: hidden; }
+.bar-fill { height: 100%; background: var(--brand); border-radius: 99px; }
+.top-list { padding: 6px 16px; }
+.top-list .r { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-top: 1px solid var(--line); }
+.top-list .r:first-child { border-top: 0; }
+.top-list .n { width: 26px; height: 26px; border-radius: 50%; background: var(--brand-soft); color: var(--brand-dark); display: grid; place-items: center; font-weight: 700; font-size: 13px; }
+.top-list .t { flex: 1; font-weight: 600; }
+.top-list .q { color: var(--muted); font-size: 13px; text-align: right; }
+
+/* QRIS saya */
+.qris-card { max-width: 420px; margin: 0 auto; padding: 20px; text-align: center; }
+.qris-card img { width: 100%; max-width: 320px; margin: 0 auto 12px; background: #fff; border: 1px solid var(--line); border-radius: 14px; padding: 8px; }
+.sound-btn[aria-pressed="false"] { opacity: .5; }
+
+
+.top { background: linear-gradient(145deg, #134430, #1B5E3F); border-bottom: 0; color: #fff; }
+.top .who small { color: rgba(255,255,255,.75); }
+.top .who .logo { background: rgba(255,255,255,.16); }
+.top .btn.ghost, .top .open-switch { background: rgba(255,255,255,.14); border-color: rgba(255,255,255,.22); color: #fff; }
+.top .open-switch .knob { background: rgba(255,255,255,.4); }
+.top .open-switch.on .knob { background: var(--accent); }
+.tabbar.dock .tab { font-size: 11.5px; }
+@media (min-width: 900px) { .tabbar.dock { top: 62px; z-index: 29; background: var(--bg); } }
+@media (max-width: 899px) { main { padding-bottom: 24px; } .toasts { bottom: 100px; } }

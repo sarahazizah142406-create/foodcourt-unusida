@@ -1,0 +1,24 @@
+{
+  "name": "foodcourt-unusida",
+  "version": "1.0.0",
+  "description": "Backend sistem pemesanan food court UNUSIDA — scan QR meja, multi-kantin, realtime Socket.io",
+  "type": "module",
+  "main": "src/server.js",
+  "scripts": {
+    "dev": "node --watch src/server.js",
+    "start": "node src/server.js"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "cloudinary": "^2.11.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^5.1.0",
+    "express-rate-limit": "^8.7.0",
+    "helmet": "^8.0.0",
+    "jsonwebtoken": "^9.0.2",
+    "multer": "^2.4.0",
+    "mysql2": "^3.11.4",
+    "socket.io": "^4.7.5"
+  }
+}
