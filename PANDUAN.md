@@ -132,3 +132,23 @@ Halaman kasir `/kantin/` dibungkus jadi APK memakai Capacitor. APK memuat halama
 - Matikan penghematan baterai untuk aplikasi ini (Pengaturan -> Aplikasi -> Kantin FoodCourt -> Baterai -> Tidak dibatasi), supaya notifikasi tidak tertunda.
 - Di Render free, server yang sedang tidur butuh sekitar satu menit untuk bangun, jadi aplikasi bisa menampilkan layar menunggu dulu.
 - Alur ini belum diuji di lingkungan pengembangan; kalau build gagal di GitHub Actions, salin log langkah yang merah dan kirim ke pengembang.
+
+## H. Deploy ke VPS (Ubuntu) dengan skrip otomatis
+
+Cocok kalau server harus hidup terus tanpa tidur. Skrip `deploy/setup-vps.sh` memasang Node.js 20, pm2 (menjaga aplikasi tetap hidup dan menyala lagi setelah restart), dan Caddy (HTTPS otomatis). Tabel database dibuat otomatis saat server pertama menyala, jadi tidak perlu impor `schema.sql` manual.
+
+1. **Beli VPS** Ubuntu 22.04 atau 24.04 dengan RAM minimal 1 GB. Bayar **bulanan** dulu. Catat alamat IP dan password root.
+2. **Siapkan domain** supaya HTTPS bisa aktif. Gratis: buat subdomain di duckdns.org, lalu arahkan ke IP VPS. Alternatif: beli domain `.my.id` dan arahkan record A ke IP VPS.
+3. **Masuk ke VPS**: di PowerShell ketik `ssh root@IP-VPS`, lalu masukkan password.
+4. **Ambil project dan jalankan skrip**:
+   ```
+   apt update && apt install -y git
+   git clone https://github.com/USERNAME/REPO.git /opt/foodcourt
+   bash /opt/foodcourt/deploy/setup-vps.sh
+   ```
+   (Repo privat: pakai `https://TOKEN@github.com/USERNAME/REPO.git`.)
+5. **Jawab pertanyaan skrip**: domain, data Aiven, dan mode QRIS (`y` = simulasi). JWT_SECRET dibuat otomatis.
+6. **Tes**: buka `https://DOMAIN/api/health`.
+7. **Update setelah git push versi baru**: `bash /opt/foodcourt/deploy/update.sh`.
+
+Berguna: `pm2 logs foodcourt` (log aplikasi), `pm2 restart foodcourt`, `journalctl -u caddy -n 30` (log HTTPS). Jangan taruh password VPS atau isi `.env` di GitHub.
