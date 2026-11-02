@@ -26,6 +26,10 @@ export function buildMessage(event, d = {}) {
   if (event === "bayar_lunas") {
     return { title: "Pembayaran QRIS masuk", body: `#${d.nomor_antrian} · ${rupiah(d.subtotal)} - siap diproses`, tag: "paid-" + d.order_tenant_id };
   }
+  if (event === "order_batal") {
+    if (d.oleh !== "pelanggan") return null; // dibatalkan kantin sendiri: tidak perlu notifikasi
+    return { title: "Pesanan dibatalkan pelanggan", body: `#${d.nomor_antrian}${d.alasan_batal ? " · " + d.alasan_batal : ""}`, tag: "batal-" + d.order_tenant_id };
+  }
   return null;
 }
 

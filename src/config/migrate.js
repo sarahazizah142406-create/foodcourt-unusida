@@ -91,6 +91,21 @@ async function upgradeLegacy() {
       "nama_menu lama diisi dari tabel menus"
     );
   }
+  // Pembatalan pesanan: status baru + alasan + kantin bisa menyembunyikan pesanan dari tampilannya
+  const [[stCol]] = await pool.query(
+    "SELECT COLUMN_TYPE AS t FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'order_tenants' AND COLUMN_NAME = 'status_order'"
+  );
+  if (stCol && !String(stCol.t).includes("'dibatalkan'")) {
+    await run("ALTER TABLE order_tenants MODIFY COLUMN status_order ENUM('diterima','diproses','siap','diambil','dibatalkan') NOT NULL DEFAULT 'diterima'", "order_tenants.status_order + dibatalkan");
+  }
+  for (const [col, ddl] of [
+    ["alasan_batal", "VARCHAR(255) NULL"], ["dibatalkan_oleh", "VARCHAR(10) NULL"], ["dibatalkan_at", "DATETIME NULL"],
+    ["disembunyikan_kantin", "TINYINT(1) NOT NULL DEFAULT 0"]
+  ]) {
+    if (!(await columnInfo("order_tenants", col))) await run(`ALTER TABLE order_tenants ADD COLUMN ${col} ${ddl}`, `order_tenants.${col} ditambahkan`);
+  }
+  if (!(await columnInfo("orders", "token_batal"))) await run("ALTER TABLE orders ADD COLUMN token_batal VARCHAR(32) NULL", "orders.token_batal ditambahkan");
+
   // Pembayaran dipindah ke tingkat checkout (1 QR untuk semua kantin)
   for (const [col, ddl] of [
     ["metode_bayar", "ENUM('qris','cash') NOT NULL DEFAULT 'cash'"], ["total", "INT NOT NULL DEFAULT 0"],

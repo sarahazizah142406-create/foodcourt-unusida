@@ -12,10 +12,10 @@ export async function markPaid(orderId, via) {
   );
   if (r.affectedRows === 0) return false;
   await pool.query(
-    "UPDATE order_tenants SET status_bayar = 'lunas', paid_at = NOW(), paid_via = ? WHERE order_id = ? AND status_bayar = 'pending'",
+    "UPDATE order_tenants SET status_bayar = 'lunas', paid_at = NOW(), paid_via = ? WHERE order_id = ? AND status_bayar = 'pending' AND status_order <> 'dibatalkan'",
     [via, orderId]
   );
-  const [ots] = await pool.query("SELECT id, tenant_id, nomor_antrian, subtotal FROM order_tenants WHERE order_id = ?", [orderId]);
+  const [ots] = await pool.query("SELECT id, tenant_id, nomor_antrian, subtotal FROM order_tenants WHERE order_id = ? AND status_order <> 'dibatalkan'", [orderId]);
   emitToOrder(orderId, "bayar_update", { order_id: orderId, status_bayar: "lunas" });
   for (const ot of ots) {
     emitToTenant(ot.tenant_id, "bayar_lunas", { order_tenant_id: ot.id, nomor_antrian: ot.nomor_antrian, subtotal: ot.subtotal });
@@ -42,6 +42,7 @@ export async function ensureQris(req, res) {
   const o = await loadOrder(id);
   if (o.metode_bayar !== "qris") throw new HttpError(409, "Pesanan ini bukan pembayaran QRIS");
   if (o.status_bayar === "lunas") return res.json({ status_bayar: "lunas" });
+  if (!(Number(o.total) > 0)) throw new HttpError(409, "Semua pesanan di checkout ini sudah dibatalkan");
 
   const alive = o.qris_string && Number(o.qris_expires_ms) > Date.now() + 5000;
   if (alive) {

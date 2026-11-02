@@ -33,9 +33,9 @@ export async function getMetrics(req, res) {
        (SELECT COUNT(*) FROM tenants WHERE status = 'buka') AS kantin_buka,
        (SELECT COUNT(*) FROM menus) AS total_menu,
        (SELECT COUNT(*) FROM tables_fc) AS total_meja,
-       (SELECT COUNT(*) FROM order_tenants WHERE DATE(created_at) = CURDATE()) AS total_order_hari_ini,
+       (SELECT COUNT(*) FROM order_tenants WHERE DATE(created_at) = CURDATE() AND status_order <> 'dibatalkan') AS total_order_hari_ini,
        (SELECT COALESCE(SUM(subtotal), 0) FROM order_tenants
-          WHERE DATE(created_at) = CURDATE() AND status_bayar = 'lunas') AS omzet_hari_ini`
+          WHERE DATE(created_at) = CURDATE() AND status_bayar = 'lunas' AND status_order <> 'dibatalkan') AS omzet_hari_ini`
   );
   res.json(Object.fromEntries(Object.entries(m).map(([k, v]) => [k, Number(v)])));
 }
@@ -259,7 +259,7 @@ export async function getRekap(req, res) {
             COUNT(CASE WHEN ot.metode_bayar = 'cash' THEN 1 END) AS cash_order,
             COALESCE(SUM(CASE WHEN ot.metode_bayar = 'cash' THEN ot.subtotal END), 0) AS cash_total
      FROM tenants t
-     LEFT JOIN order_tenants ot ON ot.tenant_id = t.id AND ot.status_bayar = 'lunas' AND ot.created_at >= ? AND ot.created_at < DATE_ADD(?, INTERVAL 1 DAY)
+     LEFT JOIN order_tenants ot ON ot.tenant_id = t.id AND ot.status_bayar = 'lunas' AND ot.status_order <> 'dibatalkan' AND ot.created_at >= ? AND ot.created_at < DATE_ADD(?, INTERVAL 1 DAY)
      GROUP BY t.id, t.nama_kantin ORDER BY t.nama_kantin ASC`,
     [dari, sampai]
   );
@@ -293,7 +293,7 @@ export async function getRekapDetail(req, res) {
   const limit = Math.min(Math.max(toInt(req.query.limit) || 50, 1), 100);
   const offset = Math.min(Math.max(toInt(req.query.offset) || 0, 0), 100000);
   // Potongan SQL di bawah konstanta; semua nilai (id, tanggal, metode, limit, offset) lewat placeholder.
-  const filter = `ot.tenant_id = ? AND ot.status_bayar = 'lunas' AND ot.created_at >= ? AND ot.created_at < DATE_ADD(?, INTERVAL 1 DAY)${metode ? " AND ot.metode_bayar = ?" : ""}`;
+  const filter = `ot.tenant_id = ? AND ot.status_bayar = 'lunas' AND ot.status_order <> 'dibatalkan' AND ot.created_at >= ? AND ot.created_at < DATE_ADD(?, INTERVAL 1 DAY)${metode ? " AND ot.metode_bayar = ?" : ""}`;
   const params = metode ? [id, dari, sampai, metode] : [id, dari, sampai];
   const [[agg]] = await pool.query(`SELECT COUNT(*) AS jumlah, COALESCE(SUM(ot.subtotal), 0) AS nominal FROM order_tenants ot WHERE ${filter}`, params);
   const [rows] = await pool.query(

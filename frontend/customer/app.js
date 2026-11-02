@@ -1,11 +1,13 @@
 /* ============================================================
    Customer — scan QR meja → pilih kantin → pesan → bayar → lacak
    ============================================================ */
-const { api, esc, rupiah, jam, icon, toast, safeImg, store, $, $$ } = FC;
+const { api, esc, rupiah, jam, icon, toast, safeImg, store, confirmDialog, $, $$ } = FC;
 
 const ORDER_TTL = 12 * 3600 * 1000; // riwayat pesanan di perangkat disimpan 12 jam
 const STEPS = ["diterima", "diproses", "siap", "diambil"];
 const STEP_LABEL = { diterima: "Diterima", diproses: "Dimasak", siap: "Siap", diambil: "Selesai" };
+const isAktif = (o) => o.status_order !== "diambil" && o.status_order !== "dibatalkan";
+const isSelesai = (o) => o.status_order === "diambil" || o.status_order === "dibatalkan";
 
 const state = {
   table: null,
@@ -32,10 +34,22 @@ function addOrderId(id) {
   if (!ids.includes(id)) ids.push(id);
   store.set("fc_orders_v2", { t: Date.now(), ids });
 }
+// Token rahasia per pesanan: bukti bahwa perangkat ini yang membuat pesanan, dibutuhkan untuk membatalkannya
+const getTokens = () => store.get("fc_otk_v1", {}) || {};
+const tokenOf = (orderId) => getTokens()[orderId] || null;
+function saveToken(orderId, token) { if (!token) return; const t = getTokens(); t[orderId] = token; store.set("fc_otk_v1", t); }
+// Hapus satu pesanan dari daftar di perangkat ini (datanya di server tidak berubah)
+function removeOrderId(id) {
+  const s = store.get("fc_orders_v2", null);
+  if (s) store.set("fc_orders_v2", { ...s, ids: s.ids.filter((x) => x !== id) });
+  const t = getTokens(); delete t[id]; store.set("fc_otk_v1", t);
+  state.orders = state.orders.filter((o) => o.order_id !== id);
+}
 function clearCustomerSession() {
   state.cart = {};
   saveCart();
   store.del("fc_orders_v2");
+  store.del("fc_otk_v1");
   store.del("fc_pay_v3");
   state.payMethod = null;
   state.orders = [];
@@ -107,7 +121,7 @@ function updateBadges(route) {
   $$("#nav a").forEach((a) => a.classList.toggle("active", a.dataset.r === route));
   const c = cartCount();
   const cc = $("#cCart"); cc.hidden = c === 0; cc.textContent = c;
-  const active = state.orders.filter((o) => o.status_order !== "diambil").length;
+  const active = state.orders.filter(isAktif).length;
   const co = $("#cOrder"); co.hidden = active === 0; co.textContent = active;
 }
 
@@ -148,12 +162,12 @@ async function fetchTenants() {
 // ---------- daftar kantin ----------
 async function viewKantin() {
   const nOpen = () => state.tenants.filter((t) => t.status === "buka").length;
-  const activeOrders = () => state.orders.filter((o) => o.status_order !== "diambil").length;
+  const activeOrders = () => state.orders.filter(isAktif).length;
   view().innerHTML = `
     <section class="hero"><div class="wrap">
       <div class="hero-row"><div class="brand">${logoBox()}<span>Food Court UNUSIDA</span></div>
         <div class="top-r"><span class="meja-chip">${icon("table")}Meja ${esc(state.table.nomor_meja)}</span>${soundBtn()}</div></div>
-      <p class="hi">Selamat datang 👋</p>
+      
       <h1>Mau makan apa hari ini?</h1>
     </div></section>
     <main><div class="wrap">
@@ -162,7 +176,7 @@ async function viewKantin() {
         <div id="found" class="found" hidden></div>
         <div class="mini-stats"><div><b id="sOpen">–</b><span>Kantin buka</span></div><div><b id="sCart">${cartCount()}</b><span>Di keranjang</span></div><div><b>${activeOrders()}</b><span>Pesanan aktif</span></div></div>
       </div>
-      <div class="sec-head"><h2>Pilih Kantin</h2><small>Pesan dari banyak kantin, bayar sekali</small></div>
+      <div class="sec-head"><h2>Pilih Kantin</h2></div>
       <div class="grid" id="grid">${Array(4).fill('<div class="skeleton" style="height:210px"></div>').join("")}</div>
     </div></main>`;
   try {
@@ -356,7 +370,7 @@ async function viewCart() {
   const m = payMethodNow();
   view().innerHTML = `
     <h1 class="page-title">Keranjang</h1>
-    <p class="page-sub">Pesan dari beberapa kantin sekaligus, bayarnya cukup satu kali.</p>
+    
     <div class="cart-list">${ids.map(cartCard).join("")}</div>
     <section class="card cart-sum">
       <div class="label">Cara bayar</div>
@@ -364,7 +378,7 @@ async function viewCart() {
         <button class="pay-opt ${m === "qris" ? "active" : ""}" data-pay="qris" ${state.cfg.qris_aktif ? "" : "disabled"}>${icon("qr")}<span><strong>QRIS</strong><small>${state.cfg.qris_aktif ? "Satu QR untuk semua kantin" : "Belum tersedia"}</small></span></button>
         <button class="pay-opt ${m === "cash" ? "active" : ""}" data-pay="cash">${icon("cash")}<span><strong>Cash</strong><small>Bayar di kasir tiap kantin</small></span></button>
       </div>
-      <p class="pay-hint">${m === "qris" ? "Setelah memesan, muncul satu QR dengan nominal gabungan. Lunas terdeteksi otomatis." : "Sebutkan nomor antrian dan bayar tunai langsung ke kasir masing-masing kantin."}</p>
+      
       <div class="total"><span>Total (${ids.length} kantin)</span><span>${rupiah(cartTotal())}</span></div>
       <button class="btn block" id="placeOrder">${m === "qris" ? "Pesan & bayar QRIS" : "Pesan sekarang"}</button>
     </section>`;
@@ -449,6 +463,7 @@ async function placeOrder(btn) {
       }
     });
     addOrderId(res.order_id);
+    saveToken(res.order_id, res.token_batal);
     state.cart = {};
     saveCart();
     state.highlight = res.order_id;
@@ -521,15 +536,16 @@ function drawOrders() {
     view().innerHTML = `<div class="state">${icon("receipt")}<h3>Belum ada pesanan</h3><p>Pesananmu akan muncul di sini beserta statusnya.</p><a class="btn" style="margin-top:16px" href="#/">Pesan sekarang</a></div>`;
     return;
   }
-  const allCompleted = state.orders.length > 0 && state.orders.every((o) => o.status_order === "diambil");
+  const allCompleted = state.orders.length > 0 && state.orders.every(isSelesai);
+  const adaSelesai = state.orders.some((o) => o.status_order === "diambil");
   view().innerHTML = `
     <h1 class="page-title">Pesananmu</h1>
-    <p class="page-sub">Status diperbarui otomatis dan berbunyi saat pesanan siap. Tunjukkan nomor antrian saat mengambil.</p>
+    
     ${allCompleted ? `
       <div class="order-done-banner">
         <div class="done-icon">${icon("check")}</div>
-        <h4>Semua pesanan selesai!</h4>
-        <p>Terima kasih telah berkunjung ke Food Court UNUSIDA. Meja siap untuk pelanggan berikutnya.</p>
+        <h4>${adaSelesai ? "Semua pesanan selesai!" : "Semua pesanan dibatalkan"}</h4>
+        <p>${adaSelesai ? "Terima kasih telah berkunjung ke Food Court UNUSIDA. Meja siap untuk pelanggan berikutnya." : "Tidak ada pesanan yang berjalan. Kamu bisa memesan lagi kapan saja."}</p>
         <button class="btn sm" id="btnFinishTable">${icon("check", "sm")}Selesai &amp; Kosongkan Meja</button>
       </div>` : ""
     }
@@ -551,18 +567,47 @@ function drawOrders() {
   }
 }
 
+const rowsAktif = (g) => g.rows.filter((o) => o.status_order !== "dibatalkan");
+
 function orderGroup(g) {
   const first = g.rows[0];
   const qris = first.metode_bayar === "qris";
+  const semuaSelesai = g.rows.every(isSelesai);
   return `
     <section class="og ${state.highlight === g.id ? "highlight" : ""}" id="og-${g.id}">
       <div class="og-head"><b>Pesanan #${g.id}</b><span>${jam(first.created_at)} · ${qris ? "QRIS" : "Cash"} · ${rupiah(first.order_total)}</span></div>
-      ${qris ? qrisBox(g) : ""}
+      ${qris && rowsAktif(g).length ? qrisBox(g) : ""}
       ${g.rows.map((o) => orderCard(o, !qris)).join("")}
+      ${semuaSelesai ? `<div class="og-foot"><button class="btn ghost sm" data-hapus-og="${g.id}">${icon("trash", "sm")}Hapus dari daftar</button></div>` : ""}
     </section>`;
 }
 
+function refundInfo(o) {
+  if (o.status_bayar !== "lunas") return "";
+  return o.metode_bayar === "qris"
+    ? `Pesanan ini sudah kamu bayar lewat QRIS. Pengembalian dana diurus admin food court, sebutkan nomor pesanan <b>#${o.order_id}</b> kepada petugas.`
+    : `Kamu sudah membayar tunai. Minta uangmu dikembalikan di kasir <b>${esc(o.nama_kantin)}</b>.`;
+}
+
+function orderCardBatal(o) {
+  const items = o.items.map((i) => `<div><span>${esc(i.nama_menu)} × ${i.qty}</span><span>${rupiah(i.harga_satuan * i.qty)}</span></div>`).join("");
+  const oleh = o.dibatalkan_oleh === "kantin" ? `Dibatalkan oleh ${esc(o.nama_kantin)}` : o.dibatalkan_oleh === "sistem" ? "Pesanan kedaluwarsa" : "Pesanan dibatalkan";
+  const refund = refundInfo(o);
+  return `
+    <article class="card order order-batal" id="ot-${o.order_tenant_id}">
+      <div class="order-head">
+        <div><h3>${esc(o.nama_kantin)}</h3><div class="when">${o.tipe_makan === "takeaway" ? "Bungkus" : "Makan di tempat"}</div>
+          <div style="margin-top:8px"><span class="badge red">Dibatalkan</span></div></div>
+        <div class="queue queue-batal"><small>Antrian</small><b>${esc(o.nomor_antrian)}</b></div>
+      </div>
+      <div class="cancel-banner">${icon("alert")}<div><b>${oleh}</b><span>${esc(o.alasan_batal || "Tanpa alasan")}</span></div></div>
+      ${refund ? `<div class="refund-note">${icon("wallet", "sm")}<span>${refund}</span></div>` : ""}
+      <div class="items-sum items-batal">${items}</div>
+    </article>`;
+}
+
 function orderCard(o, showCash) {
+  if (o.status_order === "dibatalkan") return orderCardBatal(o);
   const idx = STEPS.indexOf(o.status_order);
   const steps = STEPS.map((s, i) => `
     <div class="step ${i < idx ? "done" : ""} ${i === idx ? "active" : ""}">
@@ -578,7 +623,7 @@ function orderCard(o, showCash) {
       </div>
       <div class="steps">${steps}</div>
       ${o.status_order === "siap" ? `<div class="ready-banner">${icon("bell")}Pesananmu sudah siap! Ambil di ${esc(o.nama_kantin)}.</div>` : ""}
-      ${o.status_order === "diambil" ? `<div class="ready-banner" style="background:var(--brand-soft);color:var(--brand-dark)">${icon("check")}Selesai. Selamat menikmati!</div>` : ""}
+      ${o.status_order === "diambil" ? `<div class="ready-banner" style="background:var(--brand-soft);color:var(--brand-ink)">${icon("check")}Selesai. Selamat menikmati!</div>` : ""}
       <div class="items-sum">${items}${o.catatan ? `<div class="note">Catatan: ${esc(o.catatan)}</div>` : ""}
         <div style="color:var(--text);font-weight:700;margin-top:4px"><span>Subtotal</span><span>${rupiah(o.subtotal)}</span></div></div>
       ${showCash ? cashBox(o) : ""}
@@ -671,6 +716,8 @@ function onPaid(orderId, nominal) {
 }
 
 document.addEventListener("click", async (e) => {
+  const hog = e.target.closest("[data-hapus-og]");
+  if (hog) { removeOrderId(Number(hog.dataset.hapusOg)); drawOrders(); updateBadges(currentRoute()); toast("Dihapus dari daftar"); return; }
   const renew = e.target.closest("[data-renew]");
   if (renew) ensureQris(Number(renew.dataset.renew));
   const save = e.target.closest("[data-saveqr]");
@@ -704,7 +751,7 @@ setInterval(() => {
   if (expired) drawOrders(); // QR habis waktu -> otomatis dibuatkan yang baru
 }, 1000);
 setInterval(async () => {
-  const waiting = groupOrders().filter((g) => g.rows[0].metode_bayar === "qris" && g.rows[0].order_status_bayar === "pending" && g.rows[0].qris_string);
+  const waiting = groupOrders().filter((g) => g.rows[0].metode_bayar === "qris" && g.rows[0].order_status_bayar === "pending" && g.rows[0].qris_string && rowsAktif(g).length);
   for (const g of waiting) {
     try {
       const r = await api(`/api/customer/orders/${g.id}/cek-bayar`, { method: "POST" });
@@ -733,6 +780,14 @@ function joinRooms() {
         if (navigator.vibrate) navigator.vibrate([400, 120, 400, 120, 400, 120, 600]);
         FC.notify.show("Pesanan siap diambil!", `Antrian ${before.nomor_antrian} di ${before.nama_kantin}`, { tag: "siap-" + before.order_tenant_id });
         FC.attention("Pesanan siap!");
+      }
+      if (data.status_order === "dibatalkan" && before && before.status_order !== "dibatalkan" && data.dibatalkan_oleh === "kantin") {
+        const msg = `${before.nama_kantin} membatalkan pesananmu${data.alasan_batal ? ": " + data.alasan_batal : ""}`;
+        toast(msg, "error");
+        FC.sound.play("tap");
+        if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
+        FC.notify.show("Pesanan dibatalkan", msg, { tag: "batal-" + before.order_tenant_id });
+        FC.attention("Pesanan dibatalkan");
       }
       drawOrders(); updateBadges(currentRoute());
       if (data.status_bayar === "lunas") {
@@ -773,7 +828,7 @@ async function init() {
         // Meja sama tapi scan baru: jika semua pesanan lama sudah diambil/selesai -> bersihkan
         try {
           const pastOrders = await api(`/api/customer/orders/status?ids=${existingIds.join(",")}`);
-          const hasActive = pastOrders.some((o) => o.status_order !== "diambil");
+          const hasActive = pastOrders.some(isAktif);
           if (!hasActive) clearCustomerSession();
         } catch {
           clearCustomerSession();

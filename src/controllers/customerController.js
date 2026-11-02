@@ -1,7 +1,9 @@
+import crypto from "node:crypto";
 import { pool } from "../config/db.js";
 import { emitToTenant } from "../sockets/socket.js";
 import { HttpError, toInt } from "../utils.js";
 import { gatewayOn, mockOn } from "../config/mutasiku.js";
+import { batalkanSubOrder, bersihAlasan } from "./cancelService.js";
 
 const MAX_QTY = 99;
 const MAX_ITEMS_PER_CART = 40;
@@ -74,7 +76,8 @@ export async function checkout(req, res) {
     const [tbl] = await conn.query("SELECT id FROM tables_fc WHERE id = ?", [tableId]);
     if (tbl.length === 0) throw new HttpError(404, "Meja tidak valid, silakan scan ulang QR");
 
-    const [orderResult] = await conn.query("INSERT INTO orders (table_id, metode_bayar) VALUES (?, ?)", [tableId, metode]);
+    const tokenBatal = crypto.randomBytes(16).toString("hex");
+    const [orderResult] = await conn.query("INSERT INTO orders (table_id, metode_bayar, token_batal) VALUES (?, ?, ?)", [tableId, metode, tokenBatal]);
     const orderId = orderResult.insertId;
     const created = [];
     let grandTotal = 0;
@@ -172,7 +175,7 @@ export async function checkout(req, res) {
       });
     }
 
-    res.status(201).json({ order_id: orderId, metode_bayar: metode, total: grandTotal, kantin: created });
+    res.status(201).json({ order_id: orderId, token_batal: tokenBatal, metode_bayar: metode, total: grandTotal, kantin: created });
   } catch (err) {
     await conn.rollback();
     throw err;
@@ -186,6 +189,7 @@ async function loadStatus(orderIds) {
   const [rows] = await pool.query(
     `SELECT ot.id AS order_tenant_id, ot.order_id, ot.nomor_antrian, ot.status_bayar, ot.status_order,
             ot.subtotal, ot.metode_bayar, ot.catatan, ot.tipe_makan, ot.created_at, ot.paid_via,
+            ot.alasan_batal, ot.dibatalkan_oleh,
             o.total AS order_total, o.biaya_layanan, o.total_bayar, o.status_bayar AS order_status_bayar,
             CASE WHEN o.metode_bayar = 'qris' AND o.status_bayar = 'pending' THEN o.qris_string END AS qris_string,
             CASE WHEN o.metode_bayar = 'qris' AND o.status_bayar = 'pending' THEN o.qris_expires_ms END AS qris_expires_ms,
@@ -224,4 +228,24 @@ export async function getOrdersStatus(req, res) {
     .filter((n) => !Number.isNaN(n))
     .slice(0, 30);
   res.json(await loadStatus(ids));
+}
+
+// POST /api/customer/orders/:orderId/tenants/:orderTenantId/batal   body: { token, alasan? }
+// Pelanggan tidak punya akun, jadi pembatalan dijaga token rahasia yang hanya diterima perangkat yang membuat pesanan
+// (id pesanan berurutan dan mudah ditebak, tanpa token orang lain bisa membatalkan pesanan siapa saja).
+// Hanya boleh selama kantin belum menekan "Mulai proses".
+export async function batalkanPesanan(req, res) {
+  const orderId = toInt(req.params.orderId);
+  const otId = toInt(req.params.orderTenantId);
+  if (Number.isNaN(orderId) || Number.isNaN(otId)) throw new HttpError(400, "ID pesanan tidak valid");
+
+  const token = typeof req.body?.token === "string" ? req.body.token : "";
+  const [rows] = await pool.query("SELECT token_batal FROM orders WHERE id = ?", [orderId]);
+  const stored = rows[0]?.token_batal;
+  const ok = stored && token.length === stored.length && crypto.timingSafeEqual(Buffer.from(token), Buffer.from(stored));
+  if (!ok) throw new HttpError(403, "Pesanan ini hanya bisa dibatalkan dari perangkat yang membuatnya");
+
+  const alasan = bersihAlasan(req.body?.alasan) || "Dibatalkan oleh pelanggan";
+  const r = await batalkanSubOrder({ otId, orderId, oleh: "pelanggan", alasan, bolehDari: ["diterima"] });
+  res.json({ message: "Pesanan dibatalkan", ...r });
 }

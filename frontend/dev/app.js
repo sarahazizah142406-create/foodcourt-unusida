@@ -61,8 +61,13 @@ function renderShell() {
     <nav class="tabbar dock" id="tabs" aria-label="Navigasi panel">
       ${tabList().map(([k, ic, l]) => `<button class="tab" data-tab="${k}">${icon(ic)}${l}</button>`).join("")}
     </nav>
-    <main><div class="wrap" id="content"></div></main>
-    <div class="print-area" id="printArea"></div>`;
+    <main><div class="wrap" id="content"></div></main>`;
+  if (!document.getElementById("printArea")) {
+    const pa = document.createElement("div");
+    pa.className = "print-area";
+    pa.id = "printArea";
+    document.body.appendChild(pa);
+  }
   $("#out").addEventListener("click", async () => { if (await confirmDialog({ title: "Keluar dari panel?", okText: "Keluar" })) logout(); });
   $("#tabs").addEventListener("click", (e) => { const b = e.target.closest("[data-tab]"); if (b) { state.tab = b.dataset.tab; drawTab(); } });
   drawTab();
@@ -354,6 +359,10 @@ function qrSvg(text, cell = 4) {
   const q = qrcode(0, "M"); q.addData(text); q.make();
   return q.createSvgTag({ cellSize: cell, margin: cell * 2, scalable: true });
 }
+function qrDataUrl(text, cell = 10) {
+  const q = qrcode(0, "M"); q.addData(text); q.make();
+  return q.createDataURL(cell, cell * 2);
+}
 function customerUrl(code) {
   // URL halaman customer: disesuaikan dengan alamat tempat panel ini dibuka
   return `${location.origin}/customer/?qr=${encodeURIComponent(code)}`;
@@ -375,13 +384,19 @@ async function viewMeja() {
     <div class="card meja"><b>Meja ${esc(t.nomor_meja)}</b>
       <div class="qrbox">${qrSvg(customerUrl(t.qr_code))}</div>
       <code>${esc(t.qr_code)}</code>
-      <div style="display:flex;gap:6px"><button class="btn ghost sm" data-open="${esc(customerUrl(t.qr_code))}">Buka</button><button class="btn danger-soft sm" data-deltable="${t.id}" aria-label="Hapus meja ${esc(t.nomor_meja)}">${icon("trash", "sm")}</button></div>
+      <div style="display:flex;gap:6px"><button class="btn ghost sm" data-open="${esc(customerUrl(t.qr_code))}">Buka</button><button class="btn soft sm" data-printtable="${t.id}" aria-label="Cetak QR meja ${esc(t.nomor_meja)}" title="Cetak QR meja ini">${icon("printer", "sm")}</button><button class="btn danger-soft sm" data-deltable="${t.id}" aria-label="Hapus meja ${esc(t.nomor_meja)}">${icon("trash", "sm")}</button></div>
     </div>`).join("");
 }
 
 document.addEventListener("click", async (e) => {
   const o = e.target.closest("[data-open]");
   if (o) return window.open(o.dataset.open, "_blank", "noopener");
+  const pt = e.target.closest("[data-printtable]");
+  if (pt) {
+    const t = state.tables.find((x) => x.id === Number(pt.dataset.printtable));
+    if (t) printTables([t]);
+    return;
+  }
   const d = e.target.closest("[data-deltable]");
   if (d) {
     if (!(await confirmDialog({ title: "Hapus meja ini?", message: "QR meja ini tidak akan bisa dipakai lagi.", okText: "Hapus", danger: true }))) return;
@@ -416,12 +431,32 @@ function tableModal() {
   });
 }
 
+function printTables(list) {
+  if (!list.length) return toast("Belum ada meja");
+  let pa = document.getElementById("printArea");
+  if (!pa) {
+    pa = document.createElement("div");
+    pa.className = "print-area";
+    pa.id = "printArea";
+    document.body.appendChild(pa);
+  }
+  pa.innerHTML = list.map((t) => {
+    const url = customerUrl(t.qr_code);
+    return `
+    <div class="print-card">
+      <h2>Meja ${esc(t.nomor_meja)}</h2>
+      <p>Scan untuk memesan makanan</p>
+      <div class="qr"><img src="${qrDataUrl(url, 8)}" alt="QR Meja ${esc(t.nomor_meja)}"></div>
+      <small>Food Court UNUSIDA</small>
+    </div>`;
+  }).join("");
+  const imgs = [...pa.querySelectorAll("img")];
+  Promise.all(imgs.map((img) => img.complete ? Promise.resolve() : new Promise((r) => { img.onload = r; img.onerror = r; })))
+    .then(() => setTimeout(() => window.print(), 60));
+}
+
 function printAll() {
-  if (!state.tables.length) return toast("Belum ada meja");
-  $("#printArea").innerHTML = state.tables.map((t) => `
-    <div class="print-card"><h2>Meja ${esc(t.nomor_meja)}</h2><p>Scan untuk memesan makanan</p>
-      <div class="qr">${qrSvg(customerUrl(t.qr_code))}</div><small>Food Court UNUSIDA</small></div>`).join("");
-  setTimeout(() => window.print(), 100);
+  printTables(state.tables);
 }
 
 async function render() {

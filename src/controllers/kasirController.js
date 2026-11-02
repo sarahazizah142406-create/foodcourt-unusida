@@ -6,6 +6,7 @@ import { fileOf } from "../middleware/upload.js";
 import { emitToOrder } from "../sockets/socket.js";
 import { HttpError, toInt } from "../utils.js";
 import { saveToken, deleteToken } from "../config/push.js";
+import { batalkanSubOrder, bersihAlasan } from "./cancelService.js";
 
 const STATUS_ORDER = ["diterima", "diproses", "siap", "diambil"];
 
@@ -58,30 +59,34 @@ export async function setKantinStatus(req, res) {
 // GET /api/kasir/dashboard
 export async function getDashboard(req, res) {
   const [[sum]] = await pool.query(
-    `SELECT COUNT(*) AS total_order,
+    `SELECT COALESCE(SUM(status_order <> 'dibatalkan'), 0) AS total_order,
             COALESCE(SUM(status_order = 'diambil'), 0) AS total_selesai,
+            COALESCE(SUM(status_order = 'dibatalkan'), 0) AS total_batal,
             COALESCE(SUM(status_order IN ('diterima','diproses')), 0) AS perlu_diproses,
-            COALESCE(SUM(status_bayar = 'pending'), 0) AS belum_bayar,
-            COALESCE(SUM(CASE WHEN status_bayar = 'lunas' THEN subtotal ELSE 0 END), 0) AS total_pemasukan,
-            COALESCE(SUM(CASE WHEN status_bayar = 'lunas' AND metode_bayar = 'qris' THEN subtotal ELSE 0 END), 0) AS pemasukan_qris,
-            COALESCE(SUM(CASE WHEN status_bayar = 'lunas' AND metode_bayar = 'cash' THEN subtotal ELSE 0 END), 0) AS pemasukan_cash
+            COALESCE(SUM(status_bayar = 'pending' AND status_order <> 'dibatalkan'), 0) AS belum_bayar,
+            COALESCE(SUM(CASE WHEN status_bayar = 'lunas' AND status_order <> 'dibatalkan' THEN subtotal ELSE 0 END), 0) AS total_pemasukan,
+            COALESCE(SUM(CASE WHEN status_bayar = 'lunas' AND status_order <> 'dibatalkan' AND metode_bayar = 'qris' THEN subtotal ELSE 0 END), 0) AS pemasukan_qris,
+            COALESCE(SUM(CASE WHEN status_bayar = 'lunas' AND status_order <> 'dibatalkan' AND metode_bayar = 'cash' THEN subtotal ELSE 0 END), 0) AS pemasukan_cash
      FROM order_tenants
-     WHERE tenant_id = ? AND DATE(created_at) = CURDATE()`,
+     WHERE tenant_id = ? AND DATE(created_at) = CURDATE() AND disembunyikan_kantin = 0`,
     [req.tenantId]
   );
   res.json(Object.fromEntries(Object.entries(sum).map(([k, v]) => [k, Number(v)])));
 }
 
-// GET /api/kasir/orders -> pesanan hari ini + yang belum selesai/belum dibayar dari hari sebelumnya
+// GET /api/kasir/orders -> pesanan HARI INI saja. Pesanan hari sebelumnya otomatis hilang dari tampilan
+// (datanya tetap ada untuk laporan), dan pesanan yang "dihapus" kantin ikut disembunyikan.
 export async function getOrdersMasuk(req, res) {
   const [rows] = await pool.query(
     `SELECT ot.id AS order_tenant_id, ot.nomor_antrian, ot.status_bayar, ot.status_order,
-            ot.order_id, ot.metode_bayar, ot.subtotal, ot.catatan, ot.tipe_makan, ot.paid_via, ot.paid_at, ot.created_at, tb.nomor_meja
+            ot.order_id, ot.metode_bayar, ot.subtotal, ot.catatan, ot.tipe_makan, ot.paid_via, ot.paid_at, ot.created_at,
+            ot.alasan_batal, ot.dibatalkan_oleh, tb.nomor_meja
      FROM order_tenants ot
      JOIN orders o ON o.id = ot.order_id
      JOIN tables_fc tb ON tb.id = o.table_id
      WHERE ot.tenant_id = ?
-       AND (DATE(ot.created_at) = CURDATE() OR ot.status_order <> 'diambil')
+       AND DATE(ot.created_at) = CURDATE()
+       AND ot.disembunyikan_kantin = 0
      ORDER BY ot.created_at DESC, ot.id DESC
      LIMIT 300`,
     [req.tenantId]
@@ -118,12 +123,18 @@ export async function updateStatusOrder(req, res) {
   if (!STATUS_ORDER.includes(status_order)) throw new HttpError(400, "Status tidak valid");
 
   const [found] = await pool.query(
-    "SELECT order_id FROM order_tenants WHERE id = ? AND tenant_id = ?",
+    "SELECT order_id, status_order FROM order_tenants WHERE id = ? AND tenant_id = ?",
     [id, req.tenantId]
   );
   if (!found[0]) throw new HttpError(404, "Pesanan tidak ditemukan");
+  if (found[0].status_order === "dibatalkan") throw new HttpError(409, "Pesanan ini sudah dibatalkan");
 
-  await pool.query("UPDATE order_tenants SET status_order = ? WHERE id = ? AND tenant_id = ?", [status_order, id, req.tenantId]);
+  // bersyarat: kalau pelanggan membatalkan di detik yang sama, pembatalan yang menang
+  const [upd] = await pool.query(
+    "UPDATE order_tenants SET status_order = ? WHERE id = ? AND tenant_id = ? AND status_order <> 'dibatalkan'",
+    [status_order, id, req.tenantId]
+  );
+  if (upd.affectedRows === 0) throw new HttpError(409, "Pesanan ini sudah dibatalkan");
   emitToOrder(found[0].order_id, "status_update", { order_tenant_id: id, status_order });
   res.json({ message: "Status diperbarui" });
 }
@@ -135,10 +146,11 @@ export async function konfirmasiBayar(req, res) {
   if (Number.isNaN(id)) throw new HttpError(400, "ID tidak valid");
 
   const [found] = await pool.query(
-    "SELECT order_id, status_bayar, metode_bayar FROM order_tenants WHERE id = ? AND tenant_id = ?",
+    "SELECT order_id, status_bayar, metode_bayar, status_order FROM order_tenants WHERE id = ? AND tenant_id = ?",
     [id, req.tenantId]
   );
   if (!found[0]) throw new HttpError(404, "Pesanan tidak ditemukan");
+  if (found[0].status_order === "dibatalkan") throw new HttpError(409, "Pesanan ini sudah dibatalkan");
   if (found[0].metode_bayar === "qris" && found[0].status_bayar !== "lunas") {
     throw new HttpError(409, "Pembayaran QRIS terkonfirmasi otomatis setelah pelanggan membayar, tidak bisa ditandai manual");
   }
@@ -147,6 +159,43 @@ export async function konfirmasiBayar(req, res) {
   await pool.query("UPDATE order_tenants SET status_bayar = 'lunas', paid_at = NOW(), paid_via = 'kasir' WHERE id = ? AND tenant_id = ?", [id, req.tenantId]);
   emitToOrder(found[0].order_id, "bayar_update", { order_tenant_id: id, status_bayar: "lunas" });
   res.json({ message: "Pembayaran dikonfirmasi lunas" });
+}
+
+// POST /api/kasir/orders/:orderTenantId/batal   body: { alasan }
+// Kantin membatalkan pesanan (stok habis, bahan kurang, dll). Alasan WAJIB, dan tampil ke pelanggan.
+export async function batalkanOrder(req, res) {
+  const id = toInt(req.params.orderTenantId);
+  if (Number.isNaN(id)) throw new HttpError(400, "ID tidak valid");
+  const alasan = bersihAlasan(req.body?.alasan);
+  if (alasan.length < 3) throw new HttpError(400, "Tulis alasan pembatalan (minimal 3 huruf) supaya pelanggan tahu");
+  const r = await batalkanSubOrder({ otId: id, tenantId: req.tenantId, oleh: "kantin", alasan, bolehDari: ["diterima", "diproses", "siap"] });
+  res.json({ message: "Pesanan dibatalkan", ...r });
+}
+
+// DELETE /api/kasir/orders/:orderTenantId -> "hapus" pesanan dari tampilan kantin.
+// Hanya untuk pesanan yang sudah selesai / dibatalkan. Datanya tetap tersimpan, laporan pendapatan tidak berubah.
+export async function hapusOrder(req, res) {
+  const id = toInt(req.params.orderTenantId);
+  if (Number.isNaN(id)) throw new HttpError(400, "ID tidak valid");
+  const [r] = await pool.query(
+    "UPDATE order_tenants SET disembunyikan_kantin = 1 WHERE id = ? AND tenant_id = ? AND status_order IN ('diambil','dibatalkan')",
+    [id, req.tenantId]
+  );
+  if (r.affectedRows === 0) {
+    const [f] = await pool.query("SELECT 1 FROM order_tenants WHERE id = ? AND tenant_id = ?", [id, req.tenantId]);
+    if (!f[0]) throw new HttpError(404, "Pesanan tidak ditemukan");
+    throw new HttpError(409, "Hanya pesanan yang sudah selesai atau dibatalkan yang bisa dihapus");
+  }
+  res.json({ message: "Pesanan dihapus dari tampilan" });
+}
+
+// POST /api/kasir/orders/bersihkan -> hapus sekaligus semua pesanan selesai / dibatalkan dari tampilan
+export async function bersihkanOrder(req, res) {
+  const [r] = await pool.query(
+    "UPDATE order_tenants SET disembunyikan_kantin = 1 WHERE tenant_id = ? AND status_order IN ('diambil','dibatalkan') AND disembunyikan_kantin = 0",
+    [req.tenantId]
+  );
+  res.json({ message: `${r.affectedRows} pesanan dibersihkan`, jumlah: r.affectedRows });
 }
 
 // ---------- MENU ----------
@@ -238,20 +287,20 @@ export async function getLaporan(req, res) {
             COALESCE(SUM(CASE WHEN metode_bayar = 'qris' THEN subtotal END), 0) AS total_qris,
             COALESCE(SUM(CASE WHEN metode_bayar = 'cash' THEN subtotal END), 0) AS total_cash
      FROM order_tenants
-     WHERE tenant_id = ? AND status_bayar = 'lunas' AND created_at >= ? AND created_at < DATE_ADD(?, INTERVAL 1 DAY)`,
+     WHERE tenant_id = ? AND status_bayar = 'lunas' AND status_order <> 'dibatalkan' AND created_at >= ? AND created_at < DATE_ADD(?, INTERVAL 1 DAY)`,
     base
   );
   const [harian] = await pool.query(
     `SELECT DATE_FORMAT(created_at, '%Y-%m-%d') AS tanggal, COUNT(*) AS jumlah_order, SUM(subtotal) AS total
      FROM order_tenants
-     WHERE tenant_id = ? AND status_bayar = 'lunas' AND created_at >= ? AND created_at < DATE_ADD(?, INTERVAL 1 DAY)
+     WHERE tenant_id = ? AND status_bayar = 'lunas' AND status_order <> 'dibatalkan' AND created_at >= ? AND created_at < DATE_ADD(?, INTERVAL 1 DAY)
      GROUP BY DATE_FORMAT(created_at, '%Y-%m-%d') ORDER BY DATE_FORMAT(created_at, '%Y-%m-%d') DESC LIMIT 62`,
     base
   );
   const [terlaris] = await pool.query(
     `SELECT oi.nama_menu, SUM(oi.qty) AS qty, SUM(oi.qty * oi.harga_satuan) AS omzet
      FROM order_items oi JOIN order_tenants ot ON ot.id = oi.order_tenant_id
-     WHERE ot.tenant_id = ? AND ot.status_bayar = 'lunas' AND ot.created_at >= ? AND ot.created_at < DATE_ADD(?, INTERVAL 1 DAY)
+     WHERE ot.tenant_id = ? AND ot.status_bayar = 'lunas' AND ot.status_order <> 'dibatalkan' AND ot.created_at >= ? AND ot.created_at < DATE_ADD(?, INTERVAL 1 DAY)
      GROUP BY oi.nama_menu ORDER BY qty DESC LIMIT 5`,
     base
   );

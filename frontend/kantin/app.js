@@ -4,7 +4,9 @@
 const { api, esc, rupiah, jam, tanggal, icon, toast, safeImg, store, openSheet, confirmDialog, compressImage, $, $$ } = FC;
 
 const STEPS = ["diterima", "diproses", "siap", "diambil"];
-const STEP_LABEL = { diterima: "Baru masuk", diproses: "Diproses", siap: "Siap diambil", diambil: "Selesai" };
+const STEP_LABEL = { diterima: "Baru masuk", diproses: "Diproses", siap: "Siap diambil", diambil: "Selesai", dibatalkan: "Dibatalkan" };
+const isBatal = (o) => o.status_order === "dibatalkan";
+const isAktif = (o) => o.status_order !== "diambil" && o.status_order !== "dibatalkan";
 const NEXT_LABEL = { diterima: "Mulai proses", diproses: "Tandai siap", siap: "Sudah diambil" };
 
 const state = {
@@ -187,6 +189,14 @@ function connectRealtime() {
     state.freshIds.add(d.order_tenant_id);
     if (state.tab === "pesanan") loadOrders(true); else refreshCount();
   });
+  socket.on("order_batal", (d) => {
+    state.freshIds.delete(d.order_tenant_id);
+    if (d.oleh === "pelanggan") {
+      toast(`Pesanan #${d.nomor_antrian} dibatalkan pelanggan${d.alasan_batal ? ": " + d.alasan_batal : ""}`, "error"); beep("tap");
+      FC.notify.show("Pesanan dibatalkan pelanggan", `#${d.nomor_antrian}${d.alasan_batal ? " · " + d.alasan_batal : ""}`, { tag: "batal-" + d.order_tenant_id });
+    }
+    if (state.tab === "pesanan") loadOrders(true); else refreshCount();
+  });
   // pengingat: bunyi lagi tiap 15 detik selama masih ada pesanan siap-proses yang belum disentuh
   setInterval(() => {
     if (!state.sound || !socket) return;
@@ -199,7 +209,7 @@ async function refreshCount() {
 }
 const BASE_TITLE = document.title;
 function drawCount() {
-  const n = state.orders.filter((o) => o.status_order !== "diambil").length;
+  const n = state.orders.filter(isAktif).length;
   document.title = (n ? `(${n}) ` : "") + BASE_TITLE;
   const c = $("#cnt"); if (c) { c.hidden = n === 0; c.textContent = n; }
 }
@@ -221,8 +231,8 @@ async function loadStats() {
     const d = await tokenCall("/api/kasir/dashboard");
     const el = $("#stats"); if (!el) return;
     el.innerHTML = `
-      <div class="card stat money"><div class="k">${icon("wallet", "sm")}Pemasukan hari ini</div><div class="v">${rupiah(d.total_pemasukan)}</div><div class="s">QRIS ${rupiah(d.pemasukan_qris)} · Cash ${rupiah(d.pemasukan_cash)}</div></div>
-      <div class="card stat"><div class="k">${icon("receipt", "sm")}Pesanan hari ini</div><div class="v">${d.total_order}</div><div class="s">${d.total_selesai} selesai</div></div>
+      <div class="card stat money"><div class="k">${icon("wallet", "sm")}Pemasukan hari ini</div><div class="v">${rupiah(d.total_pemasukan)}</div></div>
+      <div class="card stat"><div class="k">${icon("receipt", "sm")}Pesanan hari ini</div><div class="v">${d.total_order}</div><div class="s">${d.total_selesai} selesai${d.total_batal ? ` · ${d.total_batal} batal` : ""}</div></div>
       <div class="card stat"><div class="k">${icon("clock", "sm")}Perlu diproses</div><div class="v">${d.perlu_diproses}</div></div>
       <div class="card stat"><div class="k">${icon("alert", "sm")}Belum dibayar</div><div class="v">${d.belum_bayar}</div></div>`;
   } catch (e) { if (e.status === 401 || e.status === 403) fail(e); }
@@ -238,34 +248,47 @@ async function loadOrders(silent = false) {
 }
 
 function filtered() {
-  const act = state.orders.filter((o) => o.status_order !== "diambil").sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+  const act = state.orders.filter(isAktif).sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
   const done = state.orders.filter((o) => o.status_order === "diambil");
+  const batal = state.orders.filter(isBatal);
   if (state.filter === "aktif") return act;
-  if (state.filter === "belum") return state.orders.filter((o) => o.status_bayar === "pending");
+  if (state.filter === "belum") return state.orders.filter((o) => o.status_bayar === "pending" && !isBatal(o));
   if (state.filter === "selesai") return done;
-  return [...act, ...done];
+  if (state.filter === "batal") return batal;
+  return [...act, ...done, ...batal];
 }
 
 function drawOrders() {
   const el = $("#orders"); if (!el) return;
   const cnt = (f) => ({
-    aktif: state.orders.filter((o) => o.status_order !== "diambil").length,
-    belum: state.orders.filter((o) => o.status_bayar === "pending").length,
+    aktif: state.orders.filter(isAktif).length,
+    belum: state.orders.filter((o) => o.status_bayar === "pending" && !isBatal(o)).length,
     selesai: state.orders.filter((o) => o.status_order === "diambil").length,
+    batal: state.orders.filter(isBatal).length,
     semua: state.orders.length
   })[f];
-  $("#chips").innerHTML = [["aktif", "Aktif"], ["belum", "Belum bayar"], ["selesai", "Selesai"], ["semua", "Semua"]]
+  $("#chips").innerHTML = [["aktif", "Aktif"], ["belum", "Belum bayar"], ["selesai", "Selesai"], ["batal", "Dibatalkan"], ["semua", "Semua"]]
     .map(([f, l]) => `<button class="chip ${state.filter === f ? "active" : ""}" data-f="${f}">${l} (${cnt(f)})</button>`).join("")
-    + `<button class="chip" data-nota-w title="Ukuran kertas struk">${icon("receipt", "sm")} Nota ${notaMm()} mm</button>`;
+    + `<button class="chip" data-nota-w title="Ukuran kertas struk">${icon("receipt", "sm")} Nota ${notaMm()} mm</button>`
+    + (state.orders.some((o) => !isAktif(o)) ? `<button class="chip" data-bersih title="Hapus semua pesanan selesai & dibatalkan dari tampilan">${icon("trash", "sm")} Bersihkan selesai</button>` : "");
   const list = filtered();
   if (!list.length) {
-    el.innerHTML = `<div class="state">${icon("inbox")}<h3>${state.filter === "aktif" ? "Belum ada pesanan aktif" : "Tidak ada pesanan"}</h3><p>Pesanan baru akan muncul otomatis di sini.</p></div>`;
+    el.innerHTML = `<div class="state">${icon("inbox")}<h3>${state.filter === "aktif" ? "Belum ada pesanan aktif" : "Tidak ada pesanan"}</h3></div>`;
     return;
   }
   el.innerHTML = `<div class="orders">${list.map(orderCard).join("")}</div>`;
 }
 
+// Catatan uang untuk pesanan yang dibatalkan setelah dibayar
+function refundNote(o) {
+  if (o.status_bayar !== "lunas") return "";
+  return o.metode_bayar === "qris"
+    ? "Pesanan ini sudah dibayar via QRIS. Pengembalian dana ke pelanggan diurus admin food court."
+    : "Pelanggan sudah membayar tunai. Kembalikan uangnya.";
+}
+
 function orderCard(o) {
+  if (isBatal(o)) return orderCardBatal(o);
   const idx = STEPS.indexOf(o.status_order);
   const pending = o.status_bayar === "pending";
   const isQris = o.metode_bayar === "qris";
@@ -295,7 +318,69 @@ function orderCard(o) {
       <button class="btn ghost icon" data-print="${o.order_tenant_id}" aria-label="Cetak nota" title="Cetak nota">${icon("receipt")}</button>
       ${idx > 0 ? `<button class="btn ghost icon" data-prev="${o.order_tenant_id}" data-to="${STEPS[idx - 1]}" aria-label="Kembalikan ke status sebelumnya" title="Kembalikan status">${icon("chevron-left")}</button>` : ""}
     </div>
+    ${idx < 3
+      ? `<button class="btn danger-soft block o-cancel-btn" data-cancel="${o.order_tenant_id}">${icon("x", "sm")}Batalkan pesanan</button>`
+      : `<button class="btn danger-soft block o-cancel-btn" data-hapus="${o.order_tenant_id}">${icon("trash", "sm")}Hapus dari tampilan</button>`}
   </article>`;
+}
+
+function orderCardBatal(o) {
+  const items = o.items.map((i) => `<div class="it"><b>${i.qty}×</b><span>${esc(i.nama_menu)}</span></div>`).join("");
+  const siapa = o.dibatalkan_oleh === "pelanggan" ? "pelanggan" : o.dibatalkan_oleh === "sistem" ? "sistem (kedaluwarsa)" : "kantin";
+  const refund = refundNote(o);
+  return `
+  <article class="card order cancelled" data-id="${o.order_tenant_id}">
+    <div class="o-head">
+      <div><div class="o-q"><small>#</small>${esc(o.nomor_antrian)}</div>
+        <div class="o-meta"><span>${icon("table", "sm")} <b>Meja ${esc(o.nomor_meja)}</b></span><span>${jam(o.created_at)}</span></div></div>
+      <span class="badge s-dibatalkan">Dibatalkan</span>
+    </div>
+    <div class="o-items">${items}</div>
+    <div class="o-reason">${icon("alert", "sm")}<div><b>Dibatalkan oleh ${siapa}</b><span>${esc(o.alasan_batal || "Tanpa alasan")}</span></div></div>
+    ${refund ? `<div class="o-note">${icon("wallet", "sm")}<span>${esc(refund)}</span></div>` : ""}
+    <div class="o-actions"><button class="btn danger-soft block" data-hapus="${o.order_tenant_id}">${icon("trash", "sm")}Hapus dari tampilan</button></div>
+  </article>`;
+}
+
+// ---------- BATALKAN PESANAN (kantin) ----------
+const ALASAN_CEPAT = ["Stok habis", "Bahan habis", "Kantin segera tutup", "Tidak sempat dibuat"];
+function cancelModal(o) {
+  const menuHabis = [...new Set(o.items.map((i) => i.nama_menu))].slice(0, 3).map((n) => `${n} habis`);
+  const chips = [...menuHabis, ...ALASAN_CEPAT];
+  const s = openSheet(`
+    <div class="sheet-head"><div><h3>Batalkan pesanan #${esc(o.nomor_antrian)}?</h3><p>Pelanggan langsung melihat alasan ini di HP-nya.</p></div>
+      <button class="btn ghost icon sm" data-close aria-label="Tutup">${icon("x")}</button></div>
+    <div class="field"><span class="label">Pilih alasan cepat</span>
+      <div class="chips chips-wrap" id="rs">${chips.map((c) => `<button type="button" class="chip" data-r="${esc(c)}">${esc(c)}</button>`).join("")}</div></div>
+    <div class="field"><label for="alasan">Alasan pembatalan <small>(wajib)</small></label>
+      <textarea class="textarea" id="alasan" maxlength="255" placeholder="Contoh: Ayam geprek habis, maaf ya"></textarea></div>
+    ${refundNote(o) ? `<div class="o-note" style="margin-top:0">${icon("wallet", "sm")}<span>${esc(refundNote(o))}</span></div>` : ""}
+    <div class="form-error" id="err" hidden></div>
+    <div class="sheet-actions"><button class="btn ghost" data-close>Kembali</button><button class="btn danger" id="goCancel">Batalkan pesanan</button></div>`);
+  const ta = $("#alasan", s.el);
+  $("#rs", s.el).addEventListener("click", (e) => {
+    const c = e.target.closest("[data-r]"); if (!c) return;
+    ta.value = c.dataset.r;
+    $$("#rs .chip", s.el).forEach((x) => x.classList.toggle("active", x === c));
+    ta.focus();
+  });
+  ta.addEventListener("input", () => $$("#rs .chip", s.el).forEach((x) => x.classList.toggle("active", x.dataset.r === ta.value.trim())));
+  $("#goCancel", s.el).addEventListener("click", async (ev) => {
+    const err = $("#err", s.el); err.hidden = true;
+    const alasan = ta.value.trim();
+    if (alasan.length < 3) { err.textContent = "Tulis alasan pembatalan dulu (minimal 3 huruf) supaya pelanggan tahu."; err.hidden = false; ta.focus(); return; }
+    const btn = ev.currentTarget; btn.disabled = true; btn.textContent = "Membatalkan...";
+    try {
+      const r = await tokenCall(`/api/kasir/orders/${o.order_tenant_id}/batal`, { method: "POST", body: { alasan } });
+      s.close(); state.freshIds.delete(o.order_tenant_id);
+      toast(r.perlu_refund === "cash" ? "Pesanan dibatalkan. Kembalikan uang tunai ke pelanggan." : r.perlu_refund === "qris" ? "Pesanan dibatalkan. Pengembalian dana QRIS diurus admin." : "Pesanan dibatalkan", "success");
+      loadOrders(true);
+    } catch (ex) {
+      if (ex.status === 401 || ex.status === 403) return fail(ex);
+      err.textContent = ex.message; err.hidden = false; btn.disabled = false; btn.textContent = "Batalkan pesanan";
+      if (ex.status === 409) loadOrders(true);
+    }
+  });
 }
 
 document.addEventListener("click", async (e) => {
@@ -311,6 +396,24 @@ document.addEventListener("click", async (e) => {
       state.freshIds.delete(Number(id));
       await loadOrders(true);
     } catch (err) { fail(err, "Gagal mengubah status"); nxt.disabled = false; }
+    return;
+  }
+  const cn = e.target.closest("[data-cancel]");
+  if (cn) { const o = state.orders.find((x) => x.order_tenant_id === Number(cn.dataset.cancel)); if (o) cancelModal(o); return; }
+  const hp = e.target.closest("[data-hapus]");
+  if (hp) {
+    const o = state.orders.find((x) => x.order_tenant_id === Number(hp.dataset.hapus)); if (!o) return;
+    if (!(await confirmDialog({ title: `Hapus pesanan #${o.nomor_antrian} dari tampilan?`, message: "Pesanan hilang dari daftar ini. Laporan pendapatan tidak berubah.", okText: "Hapus", danger: true }))) return;
+    hp.disabled = true;
+    try { await tokenCall(`/api/kasir/orders/${o.order_tenant_id}`, { method: "DELETE" }); toast("Pesanan dihapus dari tampilan"); await loadOrders(true); }
+    catch (err) { fail(err, "Gagal menghapus pesanan"); hp.disabled = false; loadOrders(true); }
+    return;
+  }
+  if (e.target.closest("[data-bersih]")) {
+    const n = state.orders.filter((o) => !isAktif(o)).length; if (!n) return;
+    if (!(await confirmDialog({ title: `Bersihkan ${n} pesanan?`, message: "Semua pesanan selesai dan dibatalkan dihapus dari tampilan. Laporan pendapatan tidak berubah.", okText: "Bersihkan", danger: true }))) return;
+    try { await tokenCall("/api/kasir/orders/bersihkan", { method: "POST" }); toast("Tampilan dibersihkan", "success"); await loadOrders(true); }
+    catch (err) { fail(err, "Gagal membersihkan"); }
     return;
   }
   const pr = e.target.closest("[data-print]");
@@ -332,29 +435,46 @@ const notaMm = () => (Number(store.get("fc_nota_mm", 58)) === 80 ? 80 : 58);
 function printNota(o) {
   let el = document.getElementById("receipt");
   if (!el) { el = document.createElement("div"); el.id = "receipt"; document.body.appendChild(el); }
-  el.style.setProperty("--rw", notaMm() + "mm");
-  const tgl = new Date(o.created_at).toLocaleString("id-ID", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
+  const mm = notaMm();
+  el.className = "w" + mm;
+  // @page tidak bisa memakai var(), jadi ukuran kertas disuntik lewat <style> khusus
+  let ps = document.getElementById("pageSize");
+  if (!ps) { ps = document.createElement("style"); ps.id = "pageSize"; document.head.appendChild(ps); }
+  ps.textContent = `@media print { @page { size: ${mm}mm auto; margin: 0; } }`;
+
+  const d = new Date(o.created_at);
+  const tgl = d.toLocaleDateString("id-ID", { day: "2-digit", month: "short", year: "numeric" });
+  const wkt = d.toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" });
   const isQris = o.metode_bayar === "qris";
-  const rows = o.items.map((i) => `<div class="r-it"><span>${i.qty}x ${esc(i.nama_menu)}</span><span>${rupiah(i.harga_satuan * i.qty)}</span></div>`).join("");
+  const lunas = o.status_bayar === "lunas";
+  const totalQty = o.items.reduce((a, i) => a + i.qty, 0);
+  const rows = o.items.map((i) => `
+    <div class="r-item">
+      <div class="r-name">${esc(i.nama_menu)}</div>
+      <div class="r-calc"><span>${i.qty} x ${rupiah(i.harga_satuan)}</span><b>${rupiah(i.harga_satuan * i.qty)}</b></div>
+    </div>`).join("");
   el.innerHTML = `
     <div class="r-c">
       <b class="r-big">${esc(state.me?.nama_kantin || "Kantin")}</b>
       <span class="r-sub">Food Court UNUSIDA</span>
     </div>
-    <hr>
-    <div class="r-c"><b class="r-q">#${esc(o.nomor_antrian)}</b></div>
-    <hr>
+    <div class="r-line"></div>
+    <div class="r-c"><span class="r-lbl">NOMOR ANTRIAN</span><b class="r-q">${esc(o.nomor_antrian)}</b></div>
+    <div class="r-line"></div>
+    <div class="r-row"><span>Tanggal</span><span>${esc(tgl)}, ${esc(wkt)}</span></div>
     <div class="r-row"><span>Meja</span><b>${esc(o.nomor_meja)}</b></div>
-    <div class="r-row"><span>Waktu</span><span>${esc(tgl)}</span></div>
     <div class="r-row"><span>Tipe</span><b>${o.tipe_makan === "takeaway" ? "BUNGKUS" : "Makan di tempat"}</b></div>
-    <hr>
+    <div class="r-line"></div>
     ${rows}
-    <hr>
-    <div class="r-tot"><b>TOTAL</b><b>${rupiah(o.subtotal)}</b></div>
-    <div class="r-row" style="margin-top:3px"><span>Bayar</span><b>${isQris ? "QRIS" : "Cash"} — ${o.status_bayar === "lunas" ? "LUNAS ✓" : "BELUM BAYAR"}</b></div>
-    ${o.catatan ? `<hr><div class="r-note">Catatan: ${esc(o.catatan)}</div>` : ""}
-    <hr>
-    <div class="r-c r-footer">Terima kasih sudah memesan!<br>Simpan struk sebagai bukti pembayaran.</div>`;
+    <div class="r-line"></div>
+    <div class="r-row"><span>${totalQty} item</span><span></span></div>
+    <div class="r-tot"><span>TOTAL</span><b>${rupiah(o.subtotal)}</b></div>
+    <div class="r-row"><span>Pembayaran</span><b>${isQris ? "QRIS" : "Tunai"}</b></div>
+    <div class="r-c"><span class="r-stat ${lunas ? "ok" : "no"}">${lunas ? "LUNAS" : "BELUM DIBAYAR"}</span></div>
+    ${o.catatan ? `<div class="r-line"></div><div class="r-note"><b>Catatan:</b> ${esc(o.catatan)}</div>` : ""}
+    <div class="r-line"></div>
+    <div class="r-c r-footer">Terima kasih sudah memesan!<br>Tunjukkan nomor antrian saat mengambil.</div>
+    <div class="r-cut"></div>`;
   window.print();
 }
 

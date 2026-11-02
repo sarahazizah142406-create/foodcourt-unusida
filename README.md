@@ -88,3 +88,58 @@ frontend/   customer/, kantin/, dev/, shared/ (desain & helper bersama), vendor/
   kelola meja & cetak QR, reset password kasir.
 - **Tampilan**: desain baru yang hangat & konsisten (font Plus Jakarta Sans, ukuran wajar), responsif
   HP/tablet/desktop, tanpa gambar placeholder dari internet.
+
+
+---
+
+## 🔒 Mencegah SQL Injection
+
+SQL injection terjadi ketika input pengguna ikut **dirangkai menjadi teks SQL**, sehingga input bisa mengubah arti query. Contoh buruk:
+
+```js
+// ❌ BAHAYA: username = "' OR '1'='1" melewati login
+pool.query(`SELECT * FROM users WHERE username = '${username}'`);
+```
+
+### Aturan yang dipakai di proyek ini
+
+1. **Selalu pakai placeholder `?`** (prepared/parameterized query). Nilai dikirim terpisah dari SQL, jadi tidak pernah dieksekusi sebagai perintah.
+   ```js
+   // ✅ AMAN
+   pool.query("SELECT * FROM users WHERE username = ?", [username]);
+   pool.query("SELECT * FROM menus WHERE tenant_id = ? AND id IN (?)", [tenantId, ids]);
+   ```
+2. **Jangan pernah menyisipkan input ke SQL dengan template string** (`${...}`) atau penjumlahan string, termasuk untuk `LIMIT`, `OFFSET`, `ORDER BY`.
+3. **Nama kolom / tabel / arah sort tidak bisa pakai `?`** → gunakan *whitelist*:
+   ```js
+   const SORT = { nama: "nama_menu", harga: "harga" };
+   const col = SORT[req.query.sort] ?? "nama_menu";   // input tak dikenal → default
+   pool.query(`SELECT * FROM menus ORDER BY ${col}`);  // col berasal dari konstanta kita
+   ```
+4. **Validasi tipe input di server** sebelum dipakai: angka lewat `toInt()` (`src/utils.js`), tanggal lewat regex `YYYY-MM-DD`, enum (`status`, `metode_bayar`) lewat daftar yang diperbolehkan.
+5. **Harga & total selalu dihitung dari database**, bukan dari data yang dikirim browser (lihat `checkout` di `customerController.js`).
+6. **Hak akses database minimal**: user MySQL aplikasi cukup `SELECT, INSERT, UPDATE, DELETE` pada database ini, jangan `root` / `DROP` / `FILE`.
+7. **Jangan bocorkan error SQL ke pengguna**. Error handler di `server.js` hanya mengirim pesan umum; detail cukup di log server.
+8. **Defense in depth**: rate limit login (`express-rate-limit`), password di-hash `bcrypt`, JWT untuk kasir/admin, `helmet` untuk header keamanan.
+9. **Output di frontend di-escape** dengan `esc()` (mencegah XSS, yang sering dipasangkan dengan injeksi data).
+
+### Checklist sebelum menambah query baru
+
+- [ ] Semua nilai dari `req.body / req.query / req.params` masuk lewat `?`
+- [ ] Bagian dinamis non-nilai (kolom, sort) berasal dari whitelist
+- [ ] Angka/tanggal/enum sudah divalidasi
+- [ ] Tidak ada `${input}` di dalam string SQL
+
+### Cara mengetes cepat
+
+Coba isi kolom login / pencarian dengan `' OR '1'='1`, `"; DROP TABLE users; --`, atau `1 UNION SELECT ...`. Aplikasi harus menganggapnya teks biasa (login gagal / hasil kosong), bukan error SQL.
+
+---
+
+## 🧹 Pembersihan Pesanan Otomatis
+
+Pesanan dari hari sebelumnya dibersihkan otomatis (saat server start, lalu tiap 30 menit) oleh `src/config/cleanup.js`:
+
+- Pesanan **belum dibayar** & belum selesai (mis. QRIS mode demo yang tidak pernah diklik "bayar") → dibatalkan otomatis oleh sistem.
+- Semua pesanan **sebelum hari ini** → disembunyikan dari dashboard kantin.
+- Data tetap ada di database; laporan hanya menghitung pesanan lunas yang tidak dibatalkan.

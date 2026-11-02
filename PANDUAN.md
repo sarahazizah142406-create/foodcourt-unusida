@@ -13,6 +13,10 @@
 
 ### Kasir (`/kantin/`)
 - Login dengan akun kasir. Tab **Pesanan**: proses pesanan (Mulai proses → Tandai siap → Sudah diambil). Bunyi bip saat ada pesanan baru.
+  - **Batalkan pesanan**: tombol merah di tiap kartu pesanan. Pilih alasan cepat (mis. "Stok habis") atau tulis sendiri; alasan wajib dan langsung tampil di HP pelanggan.
+  - **Hapus dari tampilan**: untuk pesanan yang sudah selesai/dibatalkan (atau "Bersihkan selesai" sekaligus). Laporan pendapatan tidak berubah.
+  - Pesanan dari hari sebelumnya otomatis tidak tampil lagi di daftar pesanan.
+  - Pelanggan bisa membatalkan pesanannya sendiri selama kantin belum menekan "Mulai proses".
 - Pesanan QRIS otomatis langsung berstatus **Lunas otomatis via QRIS** (bunyi bip + notifikasi). Tombol tandai lunas hanya perlu untuk Cash atau mode QRIS statis.
 - Tab **Menu**: tambah/ubah menu, foto, harga, tandai habis. Tombol **Buka/Tutup** di header.
 - Tab **Laporan** (omzet, menu terlaris) dan **QRIS** (QR milik kantin).

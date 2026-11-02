@@ -16,6 +16,7 @@ import kasirRoutes from "./routes/kasir.js";
 import devRoutes from "./routes/dev.js";
 import paymentRoutes from "./routes/payment.js";
 import { startPaymentReconciler } from "./controllers/paymentController.js";
+import { startCleanup } from "./config/cleanup.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const FRONTEND_DIR = path.resolve(__dirname, "../frontend");
@@ -89,6 +90,7 @@ async function start() {
     await assertDatabase();
     await migrate();
     startPaymentReconciler();
+    startCleanup();
     httpServer.listen(PORT, "0.0.0.0", () => {
       console.log(`🚀 Server jalan di port ${PORT}`);
       console.log(`   Customer : http://localhost:${PORT}/customer/?qr=MEJA-01-A1B2C3`);

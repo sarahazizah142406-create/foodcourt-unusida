@@ -64,6 +64,7 @@ CREATE TABLE IF NOT EXISTS orders (
   qris_expires_ms BIGINT NULL,
   paid_at       DATETIME NULL,
   paid_via      VARCHAR(20) NULL,
+  token_batal   VARCHAR(32) NULL,               -- rahasia pelanggan untuk membatalkan pesanannya sendiri
   created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   CONSTRAINT fk_orders_table FOREIGN KEY (table_id) REFERENCES tables_fc(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
@@ -76,7 +77,7 @@ CREATE TABLE IF NOT EXISTS order_tenants (
   nomor_antrian VARCHAR(20) NOT NULL,
   metode_bayar  ENUM('qris','cash') NOT NULL,
   status_bayar  ENUM('pending','lunas') NOT NULL DEFAULT 'pending',
-  status_order  ENUM('diterima','diproses','siap','diambil') NOT NULL DEFAULT 'diterima',
+  status_order  ENUM('diterima','diproses','siap','diambil','dibatalkan') NOT NULL DEFAULT 'diterima',
   subtotal      INT NOT NULL,
   catatan       VARCHAR(255) NULL,
   tipe_makan    ENUM('dine_in','takeaway') NOT NULL DEFAULT 'dine_in',  -- makan di tempat / bungkus
@@ -86,6 +87,10 @@ CREATE TABLE IF NOT EXISTS order_tenants (
   qris_expires_ms BIGINT NULL,                   -- kapan QR dinamis kedaluwarsa (epoch ms)
   paid_at       DATETIME NULL,
   paid_via      VARCHAR(20) NULL,                -- 'gateway' (otomatis) / 'kasir' (manual)
+  alasan_batal  VARCHAR(255) NULL,               -- alasan pembatalan (diisi kantin, atau pelanggan)
+  dibatalkan_oleh VARCHAR(10) NULL,              -- 'kantin' / 'pelanggan'
+  dibatalkan_at DATETIME NULL,
+  disembunyikan_kantin TINYINT(1) NOT NULL DEFAULT 0,  -- kantin "menghapus" pesanan dari tampilannya (data & laporan tetap aman)
   created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   INDEX idx_ot_tenant_created (tenant_id, created_at),
   INDEX idx_ot_order (order_id),
