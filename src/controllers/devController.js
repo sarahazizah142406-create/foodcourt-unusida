@@ -1,3 +1,4 @@
+import { parseIzin, IZIN_VALID } from "../middleware/authDev.js";
 import crypto from "crypto";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
@@ -13,15 +14,15 @@ export async function loginDev(req, res) {
   if (!username || !password) throw new HttpError(400, "Isi username dan password");
 
   const [rows] = await pool.query(
-    "SELECT id, username, password FROM users WHERE username = ? AND role = 'dev'",
+    "SELECT id, username, password, role, izin FROM users WHERE username = ? AND role IN ('dev', 'admin')",
     [username]
   );
   const user = rows[0];
   if (!user || !(await bcrypt.compare(password, user.password))) {
     throw new HttpError(401, "Username atau password salah");
   }
-  const token = jwt.sign({ userId: user.id, role: "dev" }, process.env.JWT_SECRET, { expiresIn: "12h" });
-  res.json({ token, username: user.username });
+  const token = jwt.sign({ userId: user.id, role: user.role }, process.env.JWT_SECRET, { expiresIn: "12h" });
+  res.json({ token, username: user.username, role: user.role, izin: parseIzin(user.izin) });
 }
 
 // GET /api/dev/metrics
@@ -67,7 +68,8 @@ export async function createTenant(req, res) {
   if (!nama || nama.length > 100) throw new HttpError(400, "Nama kantin wajib diisi (maks. 100 karakter)");
   const [dup] = await pool.query("SELECT id FROM tenants WHERE LOWER(TRIM(nama_kantin)) = LOWER(?) LIMIT 1", [nama]);
   if (dup[0]) throw new HttpError(409, `Kantin "${nama}" sudah ada, gunakan nama lain`);
-  const withUser = validCredentials(username, password);
+  // Admin tidak boleh menetapkan akun kasir (supaya tidak bisa login ke kantin): hanya dev yang boleh.
+  const withUser = req.role === "dev" ? validCredentials(username, password) : false;
 
   const fotoFile = fileOf(req, "foto");
   const foto = fotoFile ? await saveImage(fotoFile.buffer, "foodcourt/kantin") : null;
@@ -236,9 +238,20 @@ const numRow = (o) => Object.fromEntries(Object.entries(o).map(([k, v]) => [k, t
 // GET /api/dev/rekap?dari=YYYY-MM-DD&sampai=YYYY-MM-DD
 // Hasil penjualan per kantin dipisah per metode pembayaran. QRIS = uang masuk ke akun food court (harus disetor ke kantin),
 // Cash = uang sudah dipegang kantin masing-masing.
+
+// Rentang tanggal rekap: default HARI INI (bukan seluruh data), maksimal 366 hari supaya query tetap ringan.
+const MAX_HARI = 366;
+async function rentang(req) {
+  const [[{ h }]] = await pool.query("SELECT DATE_FORMAT(CURDATE(), '%Y-%m-%d') AS h");
+  const dari = isDate(req.query.dari) ? req.query.dari : isDate(req.query.sampai) ? req.query.sampai : h;
+  const sampai = isDate(req.query.sampai) ? req.query.sampai : dari;
+  if (dari > sampai) throw new HttpError(400, "Tanggal 'dari' harus sebelum 'sampai'");
+  if (!((Date.parse(sampai) - Date.parse(dari)) / 86400000 <= MAX_HARI)) throw new HttpError(400, `Rentang tanggal maksimal ${MAX_HARI} hari`);
+  return [dari, sampai];
+}
+
 export async function getRekap(req, res) {
-  const dari = isDate(req.query.dari) ? req.query.dari : "1970-01-01";
-  const sampai = isDate(req.query.sampai) ? req.query.sampai : "2999-12-31";
+  const [dari, sampai] = await rentang(req);
   const [rows] = await pool.query(
     `SELECT t.id AS tenant_id, t.nama_kantin,
             COUNT(CASE WHEN ot.metode_bayar = 'qris' THEN 1 END) AS qris_order,
@@ -246,7 +259,7 @@ export async function getRekap(req, res) {
             COUNT(CASE WHEN ot.metode_bayar = 'cash' THEN 1 END) AS cash_order,
             COALESCE(SUM(CASE WHEN ot.metode_bayar = 'cash' THEN ot.subtotal END), 0) AS cash_total
      FROM tenants t
-     LEFT JOIN order_tenants ot ON ot.tenant_id = t.id AND ot.status_bayar = 'lunas' AND DATE(ot.created_at) BETWEEN ? AND ?
+     LEFT JOIN order_tenants ot ON ot.tenant_id = t.id AND ot.status_bayar = 'lunas' AND ot.created_at >= ? AND ot.created_at < DATE_ADD(?, INTERVAL 1 DAY)
      GROUP BY t.id, t.nama_kantin ORDER BY t.nama_kantin ASC`,
     [dari, sampai]
   );
@@ -257,7 +270,7 @@ export async function getRekap(req, res) {
   const sum = (k) => kantin.reduce((a, r) => a + r[k], 0);
   const [[fee]] = await pool.query(
     `SELECT COALESCE(SUM(biaya_layanan), 0) AS fee FROM orders
-     WHERE status_bayar = 'lunas' AND metode_bayar = 'qris' AND DATE(created_at) BETWEEN ? AND ?`,
+     WHERE status_bayar = 'lunas' AND metode_bayar = 'qris' AND created_at >= ? AND created_at < DATE_ADD(?, INTERVAL 1 DAY)`,
     [dari, sampai]
   );
   res.json({
@@ -275,18 +288,65 @@ export async function getRekap(req, res) {
 export async function getRekapDetail(req, res) {
   const id = toInt(req.params.tenantId);
   if (Number.isNaN(id)) throw new HttpError(400, "ID kantin tidak valid");
-  const dari = isDate(req.query.dari) ? req.query.dari : "1970-01-01";
-  const sampai = isDate(req.query.sampai) ? req.query.sampai : "2999-12-31";
+  const [dari, sampai] = await rentang(req);
   const metode = ["qris", "cash"].includes(req.query.metode) ? req.query.metode : null;
+  const limit = Math.min(Math.max(toInt(req.query.limit) || 50, 1), 100);
+  const offset = Math.min(Math.max(toInt(req.query.offset) || 0, 0), 100000);
+  // Potongan SQL di bawah konstanta; semua nilai (id, tanggal, metode, limit, offset) lewat placeholder.
+  const filter = `ot.tenant_id = ? AND ot.status_bayar = 'lunas' AND ot.created_at >= ? AND ot.created_at < DATE_ADD(?, INTERVAL 1 DAY)${metode ? " AND ot.metode_bayar = ?" : ""}`;
+  const params = metode ? [id, dari, sampai, metode] : [id, dari, sampai];
+  const [[agg]] = await pool.query(`SELECT COUNT(*) AS jumlah, COALESCE(SUM(ot.subtotal), 0) AS nominal FROM order_tenants ot WHERE ${filter}`, params);
   const [rows] = await pool.query(
     `SELECT ot.id, ot.order_id, ot.nomor_antrian, ot.metode_bayar, ot.subtotal, ot.paid_at, ot.paid_via, ot.created_at, tb.nomor_meja
      FROM order_tenants ot
      JOIN orders o ON o.id = ot.order_id
      JOIN tables_fc tb ON tb.id = o.table_id
-     WHERE ot.tenant_id = ? AND ot.status_bayar = 'lunas' AND DATE(ot.created_at) BETWEEN ? AND ?
-       ${metode ? "AND ot.metode_bayar = ?" : ""}
-     ORDER BY ot.created_at DESC, ot.id DESC LIMIT 500`,
-    metode ? [id, dari, sampai, metode] : [id, dari, sampai]
+     WHERE ${filter}
+     ORDER BY ot.created_at DESC, ot.id DESC LIMIT ? OFFSET ?`,
+    [...params, limit, offset]
   );
-  res.json(rows);
+  const jumlah = Number(agg.jumlah);
+  res.json({ rows, jumlah, nominal: Number(agg.nominal), limit, offset, ada_lagi: offset + rows.length < jumlah });
+}
+
+// ---------- AKUN ADMIN FOOD COURT + HAK AKSES ----------
+const USER_RE = /^[a-zA-Z0-9_.-]{3,50}$/;
+
+// GET /api/dev/admin
+export async function getAdminAccount(req, res) {
+  const [r] = await pool.query("SELECT username, izin FROM users WHERE role = 'admin' ORDER BY id LIMIT 1");
+  res.json({ username: r[0]?.username || null, izin: parseIzin(r[0]?.izin), semua: IZIN_VALID });
+}
+
+// PUT /api/dev/admin  body: { username?, password?, izin?: [] }
+// Buat akun admin (password wajib) atau ubah username / reset password / atur hak akses.
+export async function setAdminAccount(req, res) {
+  const username = String(req.body?.username || "").trim();
+  const password = String(req.body?.password || "");
+  const izinList = Array.isArray(req.body?.izin) ? parseIzin(req.body.izin.map(String).join(",")) : null;
+  const [ex] = await pool.query("SELECT id, username FROM users WHERE role = 'admin' ORDER BY id LIMIT 1");
+  const name = username || ex[0]?.username || "";
+  if (!USER_RE.test(name)) throw new HttpError(400, "Username admin 3-50 karakter (huruf, angka, _ . -)");
+  if ((!ex[0] || password) && password.length < 6) throw new HttpError(400, "Password admin minimal 6 karakter");
+  try {
+    if (!ex[0]) {
+      await pool.query("INSERT INTO users (tenant_id, username, password, role, izin) VALUES (NULL, ?, ?, 'admin', ?)",
+        [name, await bcrypt.hash(password, 10), (izinList || []).join(",")]);
+    } else {
+      const sets = [], vals = [];   // potongan SQL di bawah konstanta; semua nilai lewat placeholder
+      if (name !== ex[0].username) { sets.push("username = ?"); vals.push(name); }
+      if (password) { sets.push("password = ?"); vals.push(await bcrypt.hash(password, 10)); }
+      if (izinList) { sets.push("izin = ?"); vals.push(izinList.join(",")); }
+      if (sets.length) await pool.query(`UPDATE users SET ${sets.join(", ")} WHERE id = ?`, [...vals, ex[0].id]);
+    }
+  } catch (err) {
+    if (err.code === "ER_DUP_ENTRY") throw new HttpError(409, "Username sudah dipakai");
+    throw err;
+  }
+  res.json({ message: "Akun admin diperbarui" });
+}
+
+// GET /api/dev/me -> role + hak akses terbaru (dibaca dari database)
+export async function me(req, res) {
+  res.json({ role: req.role, izin: req.role === "dev" ? IZIN_VALID : [...req.izin] });
 }

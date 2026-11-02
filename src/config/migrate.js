@@ -26,8 +26,8 @@ async function run(sql, label) {
 }
 
 // 1) Buat tabel yang belum ada (+ data awal kalau kosong) dari sql/schema.sql
-async function applySchemaFile() {
-  const file = path.resolve(__dirname, "../../sql/schema.sql");
+async function runSqlFile(name) {
+  const file = path.resolve(__dirname, "../../sql", name);
   const raw = fs.readFileSync(file, "utf8");
   const cleaned = raw.split("\n").filter((l) => !l.trim().startsWith("--")).join("\n");
   const statements = cleaned.split(/;\s*(?:\n|$)/).map((s) => s.trim()).filter(Boolean);
@@ -37,7 +37,20 @@ async function applySchemaFile() {
 }
 
 // 2) Upgrade database lama (dibuat dari schema versi sebelumnya)
+async function ensureIndex(table, name, cols) {
+  const [r] = await pool.query(
+    "SELECT 1 FROM information_schema.STATISTICS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND INDEX_NAME = ? LIMIT 1", [table, name]);
+  if (!r[0]) await run(`CREATE INDEX ${name} ON ${table} (${cols})`, `index ${name} dibuat`);
+}
+
 async function upgradeLegacy() {
+  const [[roleCol]] = await pool.query(
+    "SELECT COLUMN_TYPE AS t FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'users' AND COLUMN_NAME = 'role'"
+  );
+  if (roleCol && !String(roleCol.t).includes("'admin'")) {
+    await run("ALTER TABLE users MODIFY COLUMN role ENUM('kasir','dev','admin') NOT NULL DEFAULT 'kasir'", "users.role + admin");
+  }
+  if (!(await columnInfo("users", "izin"))) await run("ALTER TABLE users ADD COLUMN izin VARCHAR(255) NULL", "users.izin ditambahkan");
   if (!(await columnInfo("tenants", "qris_image"))) {
     await run("ALTER TABLE tenants ADD COLUMN qris_image MEDIUMTEXT NULL", "tenants.qris_image ditambahkan");
   }
@@ -117,9 +130,22 @@ async function hashPlainPasswords() {
   if (rows.length) console.log(`🔐 ${rows.length} password lama di-hash bcrypt`);
 }
 
+// Data awal hanya masuk SEKALI (database baru). Sebelumnya seed ikut jalan tiap start dan menghidupkan lagi
+// akun default (admin_dev / kasir_* dengan password123) setelah dihapus atau di-rename.
+async function seedIfFresh() {
+  const [[{ n }]] = await pool.query("SELECT COUNT(*) AS n FROM users");
+  if (n === 0) {
+    await runSqlFile("seed.sql");
+    console.log("🌱 Data awal dimasukkan (database baru). Segera ganti password default!");
+  }
+}
+
 export async function migrate() {
-  await applySchemaFile();
+  await runSqlFile("schema.sql");
   await upgradeLegacy();
+  await ensureIndex("orders", "idx_orders_created", "created_at");
+  await ensureIndex("order_tenants", "idx_ot_status_created", "status_bayar, created_at");
+  await seedIfFresh();
   await hashPlainPasswords();
   console.log("✅ Skema database siap");
 }

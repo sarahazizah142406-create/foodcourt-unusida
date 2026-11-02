@@ -236,6 +236,24 @@ main { padding: 16px 0 12px; }
 .pay-box.cash { background: var(--warn-soft); border-color: #F0DCA8; color: #6E4B0B; }
 .pay-box.paid { background: var(--brand-soft); border-color: #BFE0CD; color: var(--brand-dark); }
 
+/* Cash detail yang lebih rapi */
+.cash-detail { display: grid; gap: 6px; }
+.cash-row {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 6px 10px; background: rgba(200,150,46,.08); border-radius: 8px;
+  font-size: 13.5px;
+}
+.cash-row span { color: #8A6A1B; font-weight: 500; }
+.cash-row b    { font-size: 15px; color: #5A3F0A; }
+.cash-note     { margin: 4px 0 0; font-size: 12.5px; color: #8A6A1B; }
+
+/* Paid selesai label */
+.paid-done-label {
+  display: flex; align-items: center; gap: 6px;
+  margin-top: 8px; padding: 7px 10px;
+  background: var(--brand); color: #fff; border-radius: 8px; font-size: 13px;
+}
+
 /* QRIS */
 .qris-img {
   width: 100%; max-width: 240px; aspect-ratio: 1; object-fit: contain;
@@ -268,18 +286,28 @@ body.is-home { padding-bottom: calc(88px + env(safe-area-inset-bottom)); }
 .hero .wrap  { padding: 0 16px; }
 body.is-home .top { display: none; }
 
-/* ---------- Logo ---------- */
+/* ---------- Logo adaptive (light/dark mode) ---------- */
 .logo-box {
   box-sizing: border-box; width: 42px; height: 42px; min-width: 42px;
   padding: 5px; border-radius: 12px; background: #fff;
   display: grid; place-items: center; color: var(--brand); flex: none; overflow: hidden;
+  position: relative;
 }
-.logo-box img  { display: block; width: 100%; height: 100%; object-fit: contain; }
+.logo-box picture,
+.logo-box .logo-img { display: block; width: 100%; height: 100%; object-fit: contain; }
+.logo-box picture    { display: contents; }
 .logo-box .ico { width: 20px; height: 20px; }
 .top .logo-box { width: 34px; height: 34px; min-width: 34px; padding: 4px; border: 1px solid var(--line); }
 .hero .logo-box { width: 36px; height: 36px; min-width: 36px; padding: 4px; border-radius: 11px; background: #fff; color: var(--brand); }
 .hero .brand    { color: #fff; }
 .hero-title     { display: none; }
+
+/* Dark mode: logo background adaptif */
+@media (prefers-color-scheme: dark) {
+  .logo-box { background: #1e2a22; }
+  .top .logo-box { background: #1e2a22; border-color: rgba(255,255,255,.1); }
+  .hero .logo-box { background: rgba(255,255,255,.12); }
+}
 
 /* ---------- Pencarian & hasil ---------- */
 .hero-search { margin-top: 12px; }
@@ -378,6 +406,28 @@ body.is-home .top { display: none; }
 .og { grid-template-columns: repeat(auto-fit, minmax(min(100%,340px),1fr)); align-items: start; }
 .og-head, .og > .pay-box { grid-column: 1 / -1; }
 
+/* ---------- Success Sheet ---------- */
+.success-sheet { text-align: center; padding: 4px 0 8px; }
+.success-icon {
+  width: 60px; height: 60px; border-radius: 50%;
+  background: var(--brand); color: #fff;
+  display: grid; place-items: center; margin: 0 auto 14px;
+  animation: pop-in .4s cubic-bezier(.2,1.4,.4,1);
+}
+.success-icon .ico { width: 28px; height: 28px; }
+.success-title { font-size: 20px; margin-bottom: 6px; }
+.success-sub   { color: var(--muted); font-size: 14px; margin-bottom: 14px; }
+.success-hint {
+  display: flex; align-items: flex-start; gap: 10px;
+  background: var(--brand-soft); border: 1px solid #C0DEC9;
+  border-radius: 11px; padding: 11px 13px;
+  font-size: 13.5px; color: var(--brand-dark);
+  text-align: left; margin-bottom: 16px;
+}
+.success-hint .ico { flex: none; margin-top: 2px; }
+.success-hint.cash-hint { background: var(--warn-soft); border-color: #E8D5A0; color: #6E4B0B; }
+.success-actions { display: grid; gap: 8px; }
+
 /* ---------- Animasi ---------- */
 .btn:active:not(:disabled), .add:active, .tipe-chip:active, .pay-opt:active, .kantin:active { transform: scale(.97); }
 .cartbar          { animation: slide-up .24s ease-out; }
@@ -401,5 +451,20 @@ body.is-home .top { display: none; }
 .qr-live .qr-photo { display: block; width: 100%; height: auto; image-rendering: pixelated; background: #fff; border-radius: 8px; }
 .qr-live .qr-fail  { display: none; text-align: center; padding: 22px 8px; color: #444; font-size: 13.5px; }
 .qr-live.qr-err .qr-photo { display: none; }
-.qr-live.qr-err .qr-fail  { display: block; }
 .qr-live.qr-err .qr-fail .btn { margin-top: 10px; }
+
+/* ---------- Banner Pesanan Selesai & Meja Kosong ---------- */
+.order-done-banner {
+  display: flex; flex-direction: column; align-items: center; text-align: center;
+  padding: 20px 16px; margin-bottom: 18px; background: var(--brand-soft);
+  border: 1.5px solid #A8D5B5; border-radius: 14px; gap: 8px;
+}
+.order-done-banner .done-icon {
+  width: 44px; height: 44px; border-radius: 50%;
+  background: var(--brand); color: #fff;
+  display: grid; place-items: center;
+}
+.order-done-banner .done-icon .ico { width: 22px; height: 22px; }
+.order-done-banner h4 { font-size: 15.5px; font-weight: 700; color: var(--brand-dark); margin: 0; }
+.order-done-banner p { font-size: 13px; color: var(--text); opacity: .88; margin: 0; max-width: 340px; }
+.order-done-banner .btn { margin-top: 6px; }

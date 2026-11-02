@@ -32,6 +32,14 @@ function addOrderId(id) {
   if (!ids.includes(id)) ids.push(id);
   store.set("fc_orders_v2", { t: Date.now(), ids });
 }
+function clearCustomerSession() {
+  state.cart = {};
+  saveCart();
+  store.del("fc_orders_v2");
+  store.del("fc_pay_v3");
+  state.payMethod = null;
+  state.orders = [];
+}
 
 // ---------- keranjang ----------
 const cartCount = () => Object.values(state.cart).reduce((n, c) => n + Object.values(c.items).reduce((a, i) => a + i.qty, 0), 0);
@@ -55,7 +63,17 @@ function setQty(tenant, menu, qty) {
 }
 
 // ---------- kerangka halaman ----------
-const logoBox = () => `<div class="logo-box"><img src="${window.FOODCOURT_LOGO || "../assets/logo.png"}" alt="Logo" onload="this.nextElementSibling.remove()" onerror="this.remove()">${icon("utensils")}</div>`;
+const logoBox = () => {
+  const light = window.FOODCOURT_LOGO || "../assets/logo.png";
+  const dark = window.FOODCOURT_LOGO_DARK || "../assets/logo2.png";
+  return `<div class="logo-box">
+    <picture>
+      <source srcset="${dark}" media="(prefers-color-scheme: dark)">
+      <img src="${light}" alt="Logo" class="logo-img" onload="this.closest('.logo-box').querySelector('.ico')?.remove()" onerror="this.remove()">
+    </picture>
+    ${icon("utensils")}
+  </div>`;
+};
 function shell() {
   document.body.classList.add("has-tabbar");
   $app.innerHTML = `
@@ -434,15 +452,38 @@ async function placeOrder(btn) {
     state.cart = {};
     saveCart();
     state.highlight = res.order_id;
-    toast(metode === "qris" ? "Pesanan dibuat, silakan scan QR untuk membayar" : "Pesanan terkirim ke kantin", "success");
     joinRooms();
-    location.hash = "#/pesanan";
+    // Kembali ke beranda, tampilkan sheet sukses
+    location.hash = "#/";
+    setTimeout(() => showOrderSuccessSheet(res.order_id, metode), 100);
   } catch (e) {
     toast(e.message, "error");
     btn.disabled = false;
     btn.textContent = label;
     if (e.status === 409 || e.status === 404) { try { await fetchTenants(); } catch { /* abaikan */ } viewCart(); }
   }
+}
+
+// ---------- sheet sukses setelah checkout ----------
+function showOrderSuccessSheet(orderId, metode) {
+  const isQris = metode === "qris";
+  const sheets = FC.openSheet(
+    '<div class="success-sheet">' +
+    '<div class="success-icon">' + icon("check") + '</div>' +
+    '<h2 class="success-title">Pesanan Terkirim!</h2>' +
+    '<p class="success-sub">Pesanan <b>#' + orderId + '</b> sudah diterima kantin.</p>' +
+    (isQris
+      ? '<div class="success-hint">' + icon("qr") + '<span>Buka tab <b>Pesanan</b> untuk scan QR pembayaran QRIS.</span></div>'
+      : '<div class="success-hint cash-hint">' + icon("cash") + '<span>Sebutkan nomor antrian &amp; bayar tunai ke kasir tiap kantin.</span></div>'
+    ) +
+    '<div class="success-actions">' +
+    '<a class="btn block" href="#/pesanan" id="goOrders">Lihat status pesanan</a>' +
+    '<button class="btn ghost block" id="goHome" style="margin-top:8px">Pesan lagi</button>' +
+    '</div></div>'
+  );
+  const el = sheets.el, close = sheets.close;
+  el.querySelector("#goOrders").addEventListener("click", close);
+  el.querySelector("#goHome").addEventListener("click", close);
 }
 
 // ---------- pesanan & pembayaran ----------
@@ -480,11 +521,29 @@ function drawOrders() {
     view().innerHTML = `<div class="state">${icon("receipt")}<h3>Belum ada pesanan</h3><p>Pesananmu akan muncul di sini beserta statusnya.</p><a class="btn" style="margin-top:16px" href="#/">Pesan sekarang</a></div>`;
     return;
   }
+  const allCompleted = state.orders.length > 0 && state.orders.every((o) => o.status_order === "diambil");
   view().innerHTML = `
     <h1 class="page-title">Pesananmu</h1>
     <p class="page-sub">Status diperbarui otomatis dan berbunyi saat pesanan siap. Tunjukkan nomor antrian saat mengambil.</p>
+    ${allCompleted ? `
+      <div class="order-done-banner">
+        <div class="done-icon">${icon("check")}</div>
+        <h4>Semua pesanan selesai!</h4>
+        <p>Terima kasih telah berkunjung ke Food Court UNUSIDA. Meja siap untuk pelanggan berikutnya.</p>
+        <button class="btn sm" id="btnFinishTable">${icon("check", "sm")}Selesai &amp; Kosongkan Meja</button>
+      </div>` : ""
+    }
     <div class="orders">${groupOrders().map(orderGroup).join("")}</div>
     <div style="text-align:center;margin-top:20px"><a class="btn ghost" href="#/">${icon("plus", "sm")}Pesan lagi</a></div>`;
+  const btnFinish = document.getElementById("btnFinishTable");
+  if (btnFinish) {
+    btnFinish.addEventListener("click", () => {
+      clearCustomerSession();
+      updateBadges(currentRoute());
+      toast("Sesi meja telah diselesaikan. Terima kasih!", "success");
+      location.hash = "#/";
+    });
+  }
   if (state.highlight) {
     const el = document.getElementById(`og-${state.highlight}`);
     if (el) el.scrollIntoView({ block: "start", behavior: "smooth" });
@@ -527,9 +586,20 @@ function orderCard(o, showCash) {
 }
 
 function cashBox(o) {
-  if (o.status_bayar === "lunas") return `<div class="pay-box paid"><h4>${icon("check")}Pembayaran sudah diterima kasir</h4></div>`;
-  return `<div class="pay-box cash"><h4>${icon("cash")}Bayar tunai ke kasir</h4>
-    Sebutkan nomor antrian <b>${esc(o.nomor_antrian)}</b> dan bayar <b>${rupiah(o.subtotal)}</b> di ${esc(o.nama_kantin)}.</div>`;
+  if (o.status_bayar === "lunas") {
+    const done = o.status_order === "diambil";
+    return '<div class="pay-box paid">' +
+      '<h4>' + icon("check") + 'Pembayaran sudah diterima kasir</h4>' +
+      (done ? '<div class="paid-done-label">' + icon("utensils","sm") + ' Pesanan selesai — selamat menikmati!</div>' : '') +
+      '</div>';
+  }
+  return '<div class="pay-box cash">' +
+    '<h4>' + icon("cash") + 'Bayar tunai ke kasir</h4>' +
+    '<div class="cash-detail">' +
+    '<div class="cash-row"><span>Antrian</span><b>#' + esc(o.nomor_antrian) + '</b></div>' +
+    '<div class="cash-row"><span>Total</span><b>' + rupiah(o.subtotal) + '</b></div>' +
+    '<p class="cash-note">Bayar di kasir <b>' + esc(o.nama_kantin) + '</b></p>' +
+    '</div></div>';
 }
 
 // ---------- QRIS: satu QR untuk seluruh pesanan, nominal terkunci, lunas terdeteksi sendiri ----------
@@ -659,7 +729,8 @@ function joinRooms() {
       if (data.status_order === "siap" && before && before.status_order !== "siap") {
         toast(`Pesanan ${before.nama_kantin} sudah siap!`, "success");
         FC.sound.play("ready");
-        if (navigator.vibrate) navigator.vibrate([200, 100, 200]);
+        FC.sound.nag("ready", { every: 25000, max: 5 });   // ingatkan lagi sampai layar disentuh
+        if (navigator.vibrate) navigator.vibrate([400, 120, 400, 120, 400, 120, 600]);
         FC.notify.show("Pesanan siap diambil!", `Antrian ${before.nomor_antrian} di ${before.nama_kantin}`, { tag: "siap-" + before.order_tenant_id });
         FC.attention("Pesanan siap!");
       }
@@ -686,13 +757,28 @@ function fatal(title, text) {
 }
 
 async function init() {
-  const qr = new URLSearchParams(location.search).get("qr");
+  const p = new URLSearchParams(location.search);
+  const qr = p.get("qr") || p.get("meja");
   const saved = store.get("fc_table_v2", null);
   try {
-    if (qr && (!saved || saved.qr !== qr)) {
+    if (qr) {
       const table = await api(`/api/customer/tables/${encodeURIComponent(qr)}`);
       state.table = table;
       store.set("fc_table_v2", { qr, table });
+      const existingIds = getOrderIds();
+      if (!saved || saved.qr !== qr) {
+        // Meja berbeda -> bersihkan sesi pelanggan sebelumnya
+        clearCustomerSession();
+      } else if (existingIds.length > 0) {
+        // Meja sama tapi scan baru: jika semua pesanan lama sudah diambil/selesai -> bersihkan
+        try {
+          const pastOrders = await api(`/api/customer/orders/status?ids=${existingIds.join(",")}`);
+          const hasActive = pastOrders.some((o) => o.status_order !== "diambil");
+          if (!hasActive) clearCustomerSession();
+        } catch {
+          clearCustomerSession();
+        }
+      }
     } else if (saved) {
       state.table = saved.table;
     } else {
@@ -704,7 +790,7 @@ async function init() {
   try { state.cfg = await api("/api/customer/config"); } catch { /* QRIS dianggap belum aktif */ }
   shell();
   window.addEventListener("hashchange", router);
-  if (getOrderIds().length) { loadOrders().then(() => updateBadges(currentRoute())).catch(() => {}); joinRooms(); } // tetap dapat notifikasi walau tidak membuka tab Pesanan
+  if (getOrderIds().length) { loadOrders().then(() => updateBadges(currentRoute())).catch(() => {}); joinRooms(); }
   router();
 }
 

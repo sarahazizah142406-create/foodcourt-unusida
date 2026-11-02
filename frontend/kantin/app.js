@@ -135,6 +135,7 @@ async function renderShell() {
   drawTab();
   connectRealtime();
   initPush();
+  FC.keepAwake.enable();
   clearInterval(poll);
   poll = setInterval(() => { if (state.tab === "pesanan" && !document.hidden) loadOrders(true); }, 30000);
 }
@@ -186,12 +187,12 @@ function connectRealtime() {
     state.freshIds.add(d.order_tenant_id);
     if (state.tab === "pesanan") loadOrders(true); else refreshCount();
   });
-  // pengingat: bunyi lagi tiap 45 detik selama masih ada pesanan siap-proses yang belum disentuh
+  // pengingat: bunyi lagi tiap 15 detik selama masih ada pesanan siap-proses yang belum disentuh
   setInterval(() => {
     if (!state.sound || !socket) return;
     const waiting = state.orders.filter((o) => o.status_order === "diterima" && (o.status_bayar === "lunas" || o.metode_bayar === "cash")).length;
     if (waiting) beep("order");
-  }, 45000);
+  }, 15000);
 }
 async function refreshCount() {
   try { state.orders = await tokenCall("/api/kasir/orders"); drawCount(); } catch { /* abaikan */ }
@@ -336,20 +337,24 @@ function printNota(o) {
   const isQris = o.metode_bayar === "qris";
   const rows = o.items.map((i) => `<div class="r-it"><span>${i.qty}x ${esc(i.nama_menu)}</span><span>${rupiah(i.harga_satuan * i.qty)}</span></div>`).join("");
   el.innerHTML = `
-    <div class="r-c"><b class="r-big">${esc(state.me?.nama_kantin || "Kantin")}</b><div>Food Court UNUSIDA</div></div>
+    <div class="r-c">
+      <b class="r-big">${esc(state.me?.nama_kantin || "Kantin")}</b>
+      <span class="r-sub">Food Court UNUSIDA</span>
+    </div>
     <hr>
-    <div class="r-row"><span>Antrian</span><b class="r-q">#${esc(o.nomor_antrian)}</b></div>
+    <div class="r-c"><b class="r-q">#${esc(o.nomor_antrian)}</b></div>
+    <hr>
     <div class="r-row"><span>Meja</span><b>${esc(o.nomor_meja)}</b></div>
     <div class="r-row"><span>Waktu</span><span>${esc(tgl)}</span></div>
     <div class="r-row"><span>Tipe</span><b>${o.tipe_makan === "takeaway" ? "BUNGKUS" : "Makan di tempat"}</b></div>
     <hr>
     ${rows}
     <hr>
-    <div class="r-row r-tot"><b>TOTAL</b><b>${rupiah(o.subtotal)}</b></div>
-    <div class="r-row"><span>Bayar</span><span>${isQris ? "QRIS" : "Cash"} - ${o.status_bayar === "lunas" ? "LUNAS" : "BELUM BAYAR"}</span></div>
+    <div class="r-tot"><b>TOTAL</b><b>${rupiah(o.subtotal)}</b></div>
+    <div class="r-row" style="margin-top:3px"><span>Bayar</span><b>${isQris ? "QRIS" : "Cash"} — ${o.status_bayar === "lunas" ? "LUNAS ✓" : "BELUM BAYAR"}</b></div>
     ${o.catatan ? `<hr><div class="r-note">Catatan: ${esc(o.catatan)}</div>` : ""}
     <hr>
-    <div class="r-c">Terima kasih</div>`;
+    <div class="r-c r-footer">Terima kasih sudah memesan!<br>Simpan struk sebagai bukti pembayaran.</div>`;
   window.print();
 }
 

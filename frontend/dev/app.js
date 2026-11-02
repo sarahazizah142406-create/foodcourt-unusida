@@ -3,16 +3,17 @@
    ============================================================ */
 const { api, esc, rupiah, icon, toast, safeImg, store, openSheet, confirmDialog, compressImage, $, $$ } = FC;
 
-const state = { token: store.get("fc_dev_token"), username: store.get("fc_dev_user"), tab: "kantin", tenants: [], tables: [], metrics: null };
+const state = { token: store.get("fc_dev_token"), username: store.get("fc_dev_user"), role: store.get("fc_dev_role") || "dev", izin: (store.get("fc_dev_izin") || "").split(",").filter(Boolean), tab: "kantin", tenants: [], tables: [], metrics: null };
 const $root = document.getElementById("root");
 const call = (path, opt = {}) => api(path, { ...opt, token: state.token });
 
 function logout(msg) {
-  store.del("fc_dev_token"); store.del("fc_dev_user");
+  store.del("fc_dev_token"); store.del("fc_dev_user"); store.del("fc_dev_role"); store.del("fc_dev_izin");
   state.token = null; if (msg) toast(msg, "error"); render();
 }
 function fail(e, fallback) {
-  if (e.status === 401 || e.status === 403) return logout("Sesi habis, silakan login lagi");
+  // 401 / salah role -> login ulang. 403 karena hak akses -> cukup tampilkan pesan, jangan logout.
+  if (e.status === 401 || (e.status === 403 && /Akses ditolak/.test(e.message || ""))) return logout("Sesi habis, silakan login lagi");
   toast(e.message || fallback, "error");
 }
 
@@ -33,27 +34,32 @@ function renderLogin() {
     const b = $("#go"); b.disabled = true; b.textContent = "Masuk...";
     try {
       const r = await api("/api/dev/login", { method: "POST", body: { username: $("#u").value.trim(), password: $("#p").value } });
-      state.token = r.token; state.username = r.username;
-      store.set("fc_dev_token", r.token); store.set("fc_dev_user", r.username);
+      state.token = r.token; state.username = r.username; state.role = r.role; state.izin = r.izin || [];
+      store.set("fc_dev_token", r.token); store.set("fc_dev_user", r.username); store.set("fc_dev_role", r.role); store.set("fc_dev_izin", state.izin.join(","));
       render();
     } catch (ex) { err.textContent = ex.message; err.hidden = false; b.disabled = false; b.textContent = "Masuk"; }
   });
 }
 
 // ---------- KERANGKA ----------
+const can = (k) => state.role === "dev" || state.izin.includes(k);
+function tabList() {
+  return [["kantin", "store", "Kantin"], ["rekap", "wallet", "Rekap"], ["meja", "table", "Meja & QR"], ["admin", "key", "Admin"]]
+    .filter(([k]) => (k === "admin" ? state.role === "dev" : can(k === "kantin" ? "kantin_lihat" : k)));
+}
 function renderShell() {
+  const tabs = tabList();
+  if (tabs.length && !tabs.some((t) => t[0] === state.tab)) state.tab = tabs[0][0];
   document.body.classList.add("has-tabbar");
   $root.innerHTML = `
     <header class="top"><div class="wrap">
       <div class="row">
-        <div class="who"><div class="logo">${icon("key")}</div><div><h1>Panel Developer</h1><small>@${esc(state.username)}</small></div></div>
+        <div class="who"><div class="logo">${icon("key")}</div><div><h1>${state.role === "admin" ? "Panel Admin" : "Panel Developer"}</h1><small>@${esc(state.username)}</small></div></div>
         <button class="btn ghost icon" id="out" aria-label="Keluar">${icon("logout")}</button>
       </div>
     </div></header>
     <nav class="tabbar dock" id="tabs" aria-label="Navigasi panel">
-      <button class="tab" data-tab="kantin">${icon("store")}Kantin</button>
-      <button class="tab" data-tab="rekap">${icon("wallet")}Rekap</button>
-      <button class="tab" data-tab="meja">${icon("table")}Meja & QR</button>
+      ${tabList().map(([k, ic, l]) => `<button class="tab" data-tab="${k}">${icon(ic)}${l}</button>`).join("")}
     </nav>
     <main><div class="wrap" id="content"></div></main>
     <div class="print-area" id="printArea"></div>`;
@@ -63,8 +69,9 @@ function renderShell() {
 }
 const content = () => $("#content");
 function drawTab() {
+  if (!tabList().length) { content().innerHTML = `<div class="state"><h3>Belum ada akses</h3><p>Hubungi developer untuk mengaktifkan hak akses akun ini.</p></div>`; return; }
   $$("#tabs .tab").forEach((t) => t.classList.toggle("active", t.dataset.tab === state.tab));
-  if (state.tab === "kantin") viewKantin(); else if (state.tab === "rekap") viewRekap(); else viewMeja();
+  if (state.tab === "kantin") viewKantin(); else if (state.tab === "rekap") viewRekap(); else if (state.tab === "admin") viewAdmin(); else viewMeja();
 }
 const loading = () => { content().innerHTML = `<div class="state"><div class="spinner"></div>Memuat...</div>`; };
 
@@ -84,9 +91,9 @@ async function viewKantin() {
       <div class="card stat"><div class="k">Order hari ini</div><div class="v">${m.total_order_hari_ini}</div></div>
       <div class="card stat"><div class="k">Omzet lunas hari ini</div><div class="v" style="font-size:19px">${rupiah(m.omzet_hari_ini)}</div></div>
     </div>
-    <div class="section-title"><h2>Data kantin</h2><button class="btn" id="add">${icon("plus", "sm")}Tambah kantin</button></div>
+    <div class="section-title"><h2>Data kantin</h2>${can("kantin_tambah") ? `<button class="btn" id="add">${icon("plus", "sm")}Tambah kantin</button>` : ""}</div>
     <div class="tenants" id="tenants"></div>`;
-  $("#add").addEventListener("click", () => tenantModal());
+  $("#add")?.addEventListener("click", () => tenantModal());
   drawTenants();
 }
 
@@ -99,16 +106,16 @@ function drawTenants() {
       <div class="t-head">
         <div class="thumb">${foto ? `<img src="${esc(foto)}" alt="">` : `<div class="ph">${icon("store")}</div>`}</div>
         <div style="flex:1;min-width:0"><h3>${esc(t.nama_kantin)}</h3><small>ID ${t.id} · ${t.menu_count} menu</small>${t.menu_count === 0 ? `<span class="badge amber" style="margin-left:6px">Belum ada menu</span>` : ""}</div>
-        <button class="sw ${open ? "on" : ""}" data-status="${t.id}" role="switch" aria-checked="${open}" aria-label="${open ? "Tutup kantin" : "Buka kantin"}" title="${open ? "Buka" : "Tutup"}"></button>
+        <button class="sw ${open ? "on" : ""}" ${can("kantin_status") ? `data-status="${t.id}"` : "disabled"} role="switch" aria-checked="${open}" aria-label="${open ? "Tutup kantin" : "Buka kantin"}" title="${open ? "Buka" : "Tutup"}"></button>
       </div>
       <div class="t-body">
-        <div class="r"><span>Akun kasir</span><b>${t.kasir_username ? "@" + esc(t.kasir_username) : "—"}</b></div>
+        ${state.role === "dev" ? `<div class="r"><span>Akun kasir</span><b>${t.kasir_username ? "@" + esc(t.kasir_username) : "—"}</b></div>` : ""}
         <div class="r"><span>Status</span><span class="badge ${open ? "green" : ""}">${open ? "Buka" : "Tutup"}</span></div>
       </div>
       <div class="t-actions">
-        <button class="btn ghost sm" data-edit="${t.id}">${icon("pencil", "sm")}Edit</button>
-        <button class="btn ghost sm" data-kasir="${t.id}">${icon("key", "sm")}Akun</button>
-        <button class="btn danger-soft sm" data-del="${t.id}">${icon("trash", "sm")}Hapus</button>
+        ${can("kantin_edit") ? `<button class="btn ghost sm" data-edit="${t.id}">${icon("pencil", "sm")}Edit</button>` : ""}
+        ${state.role === "dev" ? `<button class="btn ghost sm" data-kasir="${t.id}">${icon("key", "sm")}Akun</button>` : ""}
+        ${state.role === "dev" ? `<button class="btn danger-soft sm" data-del="${t.id}">${icon("trash", "sm")}Hapus</button>` : ""}
       </div>
     </article>`;
   }).join("");
@@ -151,11 +158,11 @@ function imagePicker(root, { label, current, format, max, hint }) {
 
 function tenantModal(t = null) {
   const s = openSheet(`
-    <div class="sheet-head"><div><h3>${t ? "Edit kantin" : "Tambah kantin"}</h3><p>${t ? "Ubah nama atau foto kantin." : "Sekalian buatkan akun kasir untuk kantin ini."}</p></div>
+    <div class="sheet-head"><div><h3>${t ? "Edit kantin" : "Tambah kantin"}</h3><p>${t ? "Ubah nama atau foto kantin." : (state.role === "dev" ? "Sekalian buatkan akun kasir untuk kantin ini." : "Isi nama dan foto kantin.")}</p></div>
       <button class="btn ghost icon sm" data-close aria-label="Tutup">${icon("x")}</button></div>
     <div class="field"><label for="nm">Nama kantin</label><input class="input" id="nm" maxlength="100" placeholder="Contoh: Kantin Bu Ani" value="${esc(t?.nama_kantin || "")}"></div>
     <div class="field" id="foto"></div>
-    ${t ? "" : `
+    ${t ? "" : state.role !== "dev" ? `<p class="hint" style="margin:0 0 6px">Akun kasir untuk kantin ini dibuat oleh developer.</p>` : `
       <div class="field"><label for="un">Username kasir</label><input class="input" id="un" autocapitalize="none" placeholder="kasir_ani"></div>
       <div class="field"><label for="pw">Password kasir</label><input class="input" id="pw" type="text" placeholder="Minimal 6 karakter"></div>
       <p class="hint" style="margin:0 0 6px">Pembayaran QRIS memakai satu akun food court, jadi tidak perlu mengunggah QRIS per kantin.</p>`}
@@ -170,7 +177,7 @@ function tenantModal(t = null) {
     form.append("nama_kantin", nama);
     if (pf.file) form.append("foto", pf.file);
     if (pf.remove) form.append("hapus_foto", "true");
-    if (!t) {
+    if (!t && state.role === "dev") {
       form.append("username", $("#un", s.el).value.trim()); form.append("password", $("#pw", s.el).value);
     }
     const b = ev.currentTarget; b.disabled = true; b.textContent = "Menyimpan...";
@@ -298,19 +305,31 @@ async function rekapDetail(tenantId) {
       <button class="chip active" data-m="">Semua</button><button class="chip" data-m="qris">QRIS</button><button class="chip" data-m="cash">Cash</button>
     </div>
     <div id="rdList" style="margin-top:12px"></div>`);
-  const load = async () => {
+  const PAGE = 50;
+  let offset = 0;
+  const rowHtml = (r) => `
+    <div class="rd-row"><div><b>#${esc(r.nomor_antrian)}</b> · Meja ${esc(r.nomor_meja)}<small>${new Date(r.created_at).toLocaleString("id-ID", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}</small></div>
+      <span class="badge ${r.metode_bayar === "qris" ? "blue" : ""}">${r.metode_bayar === "qris" ? "QRIS" : "Cash"}</span><b>${rupiah(r.subtotal)}</b></div>`;
+  const load = async (append = false) => {
     const box = $("#rdList", s.el);
-    box.innerHTML = `<div class="state"><div class="spinner"></div>Memuat...</div>`;
+    if (!append) { offset = 0; box.innerHTML = `<div class="state"><div class="spinner"></div>Memuat...</div>`; }
     try {
-      const rows = await call(`/api/dev/rekap/${tenantId}?dari=${R.dari}&sampai=${R.sampai}${metode ? `&metode=${metode}` : ""}`);
-      const sum = rows.reduce((a, r) => a + r.subtotal, 0);
-      box.innerHTML = rows.length ? `
-        <div class="rd-sum"><span>${rows.length} transaksi</span><b>${rupiah(sum)}</b></div>
-        <div class="rd-list">${rows.map((r) => `
-          <div class="rd-row"><div><b>#${esc(r.nomor_antrian)}</b> · Meja ${esc(r.nomor_meja)}<small>${new Date(r.created_at).toLocaleString("id-ID", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}</small></div>
-            <span class="badge ${r.metode_bayar === "qris" ? "blue" : ""}">${r.metode_bayar === "qris" ? "QRIS" : "Cash"}</span><b>${rupiah(r.subtotal)}</b></div>`).join("")}</div>`
-        : `<div class="state">${icon("inbox")}<h3>Belum ada transaksi</h3></div>`;
-    } catch (e) { box.innerHTML = `<div class="state error">${esc(e.message)}</div>`; }
+      const d = await call(`/api/dev/rekap/${tenantId}?dari=${R.dari}&sampai=${R.sampai}${metode ? `&metode=${metode}` : ""}&limit=${PAGE}&offset=${offset}`);
+      if (!append) {
+        box.innerHTML = d.jumlah
+          ? `<div class="rd-sum"><span>${d.jumlah} transaksi</span><b>${rupiah(d.nominal)}</b></div><div class="rd-list" id="rdRows"></div><div id="rdMore"></div>`
+          : `<div class="state">${icon("inbox")}<h3>Belum ada transaksi</h3></div>`;
+      }
+      if (!d.jumlah) return;
+      $("#rdRows", s.el).insertAdjacentHTML("beforeend", d.rows.map(rowHtml).join(""));
+      offset += d.rows.length;
+      $("#rdMore", s.el).innerHTML = d.ada_lagi ? `<button class="btn ghost block" id="rdMoreBtn" style="margin-top:10px">Muat lagi (${d.jumlah - offset} tersisa)</button>` : "";
+      const mb = $("#rdMoreBtn", s.el);
+      if (mb) mb.addEventListener("click", () => { mb.disabled = true; load(true); });
+    } catch (e) {
+      if (append) { toast(e.message, "error"); const mb = $("#rdMoreBtn", s.el); if (mb) mb.disabled = false; }
+      else box.innerHTML = `<div class="state error">${esc(e.message)}</div>`;
+    }
   };
   $("#rdChips", s.el).addEventListener("click", (e) => {
     const b = e.target.closest("[data-m]"); if (!b) return;
@@ -405,5 +424,49 @@ function printAll() {
   setTimeout(() => window.print(), 100);
 }
 
-function render() { if (!state.token) renderLogin(); else renderShell(); }
+async function render() {
+  if (!state.token) return renderLogin();
+  try {   // ambil hak akses terbaru dari server (dev bisa mengubahnya kapan saja)
+    const m = await call("/api/dev/me");
+    state.role = m.role; state.izin = m.izin;
+    store.set("fc_dev_role", m.role); store.set("fc_dev_izin", m.izin.join(","));
+  } catch (e) { if (e.status === 401 || e.status === 403) return logout("Sesi habis, silakan login lagi"); }
+  renderShell();
+}
 render();
+
+// ---------- AKUN ADMIN FOOD COURT + HAK AKSES ----------
+const IZIN_LABEL = {
+  kantin_lihat: "Lihat daftar kantin", kantin_tambah: "Tambah kantin baru", kantin_edit: "Edit nama & foto kantin",
+  kantin_status: "Buka / tutup kantin", rekap: "Lihat rekap pembayaran", meja: "Kelola meja & QR"
+};
+async function viewAdmin() {
+  loading();
+  let d;
+  try { d = await call("/api/dev/admin"); } catch (e) { return fail(e); }
+  content().innerHTML = `
+    <div class="section-title" style="margin-top:0"><h2>Akun admin food court</h2></div>
+    <div class="card" style="padding:16px">
+      <p style="margin:0 0 12px">Admin login di halaman yang sama dengan panel ini dan hanya melihat fitur yang dicentang. ${d.username ? "Perubahan hak akses langsung berlaku." : "Belum ada akun admin."}</p>
+      <div class="field"><label for="adU">Username</label><input class="input" id="adU" value="${esc(d.username || "")}" autocapitalize="none"></div>
+      <div class="field"><label for="adP">Password ${d.username ? "baru (kosongkan jika tidak diganti)" : "(min. 6 karakter)"}</label><input class="input" id="adP" type="password" autocomplete="new-password"></div>
+      <div class="label" style="margin:12px 0 6px">Hak akses</div>
+      ${d.semua.map((k) => `<label style="display:flex;align-items:center;gap:10px;padding:6px 0"><input type="checkbox" data-izin="${k}" ${d.izin.includes(k) ? "checked" : ""}> ${esc(IZIN_LABEL[k] || k)}</label>`).join("")}
+      <p class="hint" style="margin:10px 0 0">Selalu khusus developer (tidak bisa diberikan): reset akun kasir, hapus kantin, dan kelola akun admin. Dengan begitu admin tidak bisa masuk ke akun kantin mana pun.</p>
+      <button class="btn block" id="adGo" style="margin-top:12px">${d.username ? "Simpan" : "Buat akun admin"}</button>
+    </div>`;
+  const boxes = Array.from($$("[data-izin]"));
+  const lihat = boxes.find((b) => b.dataset.izin === "kantin_lihat");
+  boxes.forEach((b) => b.addEventListener("change", () => {
+    const k = b.dataset.izin;
+    if (k.startsWith("kantin_") && k !== "kantin_lihat" && b.checked) lihat.checked = true;   // butuh daftar kantin
+    if (b === lihat && !b.checked) boxes.forEach((x) => { if (x.dataset.izin.startsWith("kantin_")) x.checked = false; });
+  }));
+  $("#adGo").addEventListener("click", async () => {
+    const izin = boxes.filter((b) => b.checked).map((b) => b.dataset.izin);
+    try {
+      await call("/api/dev/admin", { method: "PUT", body: { username: $("#adU").value.trim(), password: $("#adP").value, izin } });
+      toast("Akun admin disimpan"); viewAdmin();
+    } catch (e) { fail(e, "Gagal menyimpan"); }
+  });
+}

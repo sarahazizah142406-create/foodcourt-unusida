@@ -26,7 +26,7 @@ export async function login(req, res) {
   if (!user || !(await bcrypt.compare(password, user.password))) {
     throw new HttpError(401, "Username atau password salah");
   }
-  if (user.role === "dev") throw new HttpError(403, "Akun developer login lewat halaman Panel Dev");
+  if (user.role !== "kasir") throw new HttpError(403, "Akun ini login lewat halaman Panel Dev / Admin");
   if (!user.tenant_id) throw new HttpError(403, "Akun ini belum terhubung ke kantin");
 
   const token = jwt.sign(
@@ -238,20 +238,20 @@ export async function getLaporan(req, res) {
             COALESCE(SUM(CASE WHEN metode_bayar = 'qris' THEN subtotal END), 0) AS total_qris,
             COALESCE(SUM(CASE WHEN metode_bayar = 'cash' THEN subtotal END), 0) AS total_cash
      FROM order_tenants
-     WHERE tenant_id = ? AND status_bayar = 'lunas' AND DATE(created_at) BETWEEN ? AND ?`,
+     WHERE tenant_id = ? AND status_bayar = 'lunas' AND created_at >= ? AND created_at < DATE_ADD(?, INTERVAL 1 DAY)`,
     base
   );
   const [harian] = await pool.query(
     `SELECT DATE_FORMAT(created_at, '%Y-%m-%d') AS tanggal, COUNT(*) AS jumlah_order, SUM(subtotal) AS total
      FROM order_tenants
-     WHERE tenant_id = ? AND status_bayar = 'lunas' AND DATE(created_at) BETWEEN ? AND ?
-     GROUP BY DATE(created_at) ORDER BY DATE(created_at) DESC LIMIT 62`,
+     WHERE tenant_id = ? AND status_bayar = 'lunas' AND created_at >= ? AND created_at < DATE_ADD(?, INTERVAL 1 DAY)
+     GROUP BY DATE_FORMAT(created_at, '%Y-%m-%d') ORDER BY DATE_FORMAT(created_at, '%Y-%m-%d') DESC LIMIT 62`,
     base
   );
   const [terlaris] = await pool.query(
     `SELECT oi.nama_menu, SUM(oi.qty) AS qty, SUM(oi.qty * oi.harga_satuan) AS omzet
      FROM order_items oi JOIN order_tenants ot ON ot.id = oi.order_tenant_id
-     WHERE ot.tenant_id = ? AND ot.status_bayar = 'lunas' AND DATE(ot.created_at) BETWEEN ? AND ?
+     WHERE ot.tenant_id = ? AND ot.status_bayar = 'lunas' AND ot.created_at >= ? AND ot.created_at < DATE_ADD(?, INTERVAL 1 DAY)
      GROUP BY oi.nama_menu ORDER BY qty DESC LIMIT 5`,
     base
   );

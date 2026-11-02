@@ -27,6 +27,31 @@
   --font:        "Noto Serif", Georgia, "Times New Roman", serif;
 }
 
+/* Dark mode: menyesuaikan tema HP otomatis */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg:       #0F1A13;
+    --surface:  #1A2A1E;
+    --text:     #E8F0EB;
+    --muted:    #8CA898;
+    --line:     #2A3D2F;
+    --brand-soft: #1A3325;
+    --accent-soft: #2D2210;
+    --warn-soft:  #2A1E08;
+    --danger-soft:#2A1010;
+    --info-soft:  #0E1F38;
+    --shadow-sm: 0 1px 3px rgba(0,0,0,.3);
+    --shadow:    0 3px 14px rgba(0,0,0,.35);
+    --shadow-lg: 0 10px 40px rgba(0,0,0,.5);
+  }
+  .skeleton { background: linear-gradient(90deg,#1A2A1E 25%,#22352A 50%,#1A2A1E 75%); background-size: 200% 100%; }
+  .card { background: var(--surface); }
+  .tabbar { background: rgba(18,30,22,.96); border-color: rgba(42,61,47,.9); }
+  .hero .meja-chip { background: rgba(255,255,255,.12); border-color: rgba(255,255,255,.2); }
+}
+
+
+
 *, *::before, *::after { box-sizing: border-box; }
 html { -webkit-text-size-adjust: 100%; }
 body {

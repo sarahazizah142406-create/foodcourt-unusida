@@ -93,3 +93,26 @@ main { padding: 20px 0 48px; }
 .rd-row { display: flex; align-items: center; gap: 10px; padding: 10px 2px; border-bottom: 1px dashed var(--line); }
 .rd-row > div { flex: 1; min-width: 0; }
 .rd-row small { display: block; color: var(--muted); font-size: 12px; }
+
+/* ---------- Tampilan polos & bersih (panel dev/admin): tanpa gradient, tanpa dark mode ---------- */
+:root, :root:root {
+  color-scheme: light;
+  --bg: #F4F5F4; --surface: #FFFFFF; --text: #1D2A22; --muted: #69736D; --line: #E3E6E3;
+  --brand-soft: #E4F0E8; --accent-soft: #F8EDD2; --warn-soft: #FFF3DA; --danger-soft: #FCE9E9; --info-soft: #E5EEFA;
+  --shadow-sm: 0 1px 2px rgba(29,42,34,.06), 0 1px 4px rgba(29,42,34,.05);
+  --shadow: 0 3px 12px rgba(29,42,34,.08);
+  --shadow-lg: 0 10px 36px rgba(29,42,34,.16);
+}
+@media (prefers-color-scheme: dark) {
+  :root, :root:root {
+    --bg: #F4F5F4; --surface: #FFFFFF; --text: #1D2A22; --muted: #69736D; --line: #E3E6E3;
+    --brand-soft: #E4F0E8; --accent-soft: #F8EDD2; --warn-soft: #FFF3DA; --danger-soft: #FCE9E9; --info-soft: #E5EEFA;
+    --shadow-sm: 0 1px 2px rgba(29,42,34,.06), 0 1px 4px rgba(29,42,34,.05);
+    --shadow: 0 3px 12px rgba(29,42,34,.08);
+    --shadow-lg: 0 10px 36px rgba(29,42,34,.16);
+  }
+  .skeleton { background: linear-gradient(90deg,#ECEAE2 25%,#F5F4EE 50%,#ECEAE2 75%); background-size: 200% 100%; }
+  .tabbar { background: rgba(255,255,255,.96); border-color: var(--line); }
+}
+.login-wrap { background: var(--bg); }
+.top { background: var(--brand); border-bottom: 0; }

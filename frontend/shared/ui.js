@@ -157,66 +157,109 @@
 
   // ---------- suara notifikasi (Web Audio, tanpa file audio) ----------
   // Browser baru mau bersuara setelah pengguna menyentuh layar sekali, jadi AudioContext dibuka saat sentuhan pertama.
+  // ---------- suara notifikasi (Web Audio, tanpa file audio) ----------
+  // Menggunakan gelombang triangle yang nyaring di speaker HP + getar (vibration API)
   const sound = (() => {
-    let ctx = null;
+    let ctx = null, master = null;
     let on = store.get("fc_sound", true);
     const AC = window.AudioContext || window.webkitAudioContext;
     const ensure = () => {
       if (!AC) return null;
-      ctx = ctx || new AC();
+      if (!ctx) {
+        ctx = new AC();
+        // rantai master: gain -> compressor -> speaker, supaya bunyi lebih keras & padat tanpa pecah
+        master = ctx.createGain(); master.gain.value = 1;
+        const comp = ctx.createDynamicsCompressor();
+        comp.threshold.value = -24; comp.ratio.value = 8; comp.attack.value = 0.003; comp.release.value = 0.15;
+        master.connect(comp); comp.connect(ctx.destination);
+      }
       if (ctx.state === "suspended") ctx.resume();
       return ctx;
     };
-    // [frekuensi Hz, mulai (detik), lama (detik)]
+    // [frekuensi Hz, mulai (detik), lama (detik)] — diulang beberapa kali supaya sulit terlewat
+    const seq = (base, times, gap) => Array.from({ length: times }, (_, i) => base.map(([f, at, d]) => [f, at + i * gap, d])).flat();
     const PATTERNS = {
-      order: [[880, 0, 0.16], [1175, 0.18, 0.18], [880, 0.5, 0.16], [1175, 0.68, 0.18]], // pesanan baru masuk (kasir)
-      paid:  [[784, 0, 0.12], [988, 0.13, 0.12], [1319, 0.26, 0.26]],                    // pembayaran berhasil
-      ready: [[988, 0, 0.14], [1175, 0.17, 0.14], [1568, 0.34, 0.14], [1175, 0.58, 0.14], [1568, 0.75, 0.3]], // pesanan siap diambil
-      tap:   [[660, 0, 0.1]]
+      order: seq([[784, 0, 0.18], [1046, 0.2, 0.25], [784, 0.55, 0.18], [1046, 0.75, 0.35]], 3, 1.5), // pesanan baru masuk (kasir), ±4 dtk
+      paid:  seq([[523, 0, 0.14], [659, 0.14, 0.14], [784, 0.28, 0.14], [1046, 0.44, 0.32]], 2, 0.95), // pembayaran berhasil
+      ready: seq([[659, 0, 0.15], [784, 0.16, 0.15], [988, 0.32, 0.18], [1319, 0.52, 0.38]], 3, 1.2),  // pesanan siap diambil
+      tap:   [[660, 0, 0.08]]
     };
     const play = (name, force = false) => {
       if (!on && !force) return;
       try {
         const c = ensure();
-        if (!c) return;
-        (PATTERNS[name] || PATTERNS.tap).forEach(([f, at, dur]) => {
-          const o = c.createOscillator(), g = c.createGain();
-          o.type = "sine"; o.frequency.value = f;
-          o.connect(g); g.connect(c.destination);
-          const t = c.currentTime + at;
-          g.gain.setValueAtTime(0.0001, t);
-          g.gain.exponentialRampToValueAtTime(0.3, t + 0.02);
-          g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-          o.start(t); o.stop(t + dur + 0.03);
-        });
-      } catch { /* audio diblokir browser, abaikan */ }
+        if (c) {
+          (PATTERNS[name] || PATTERNS.tap).forEach(([f, at, dur]) => {
+            // dua lapis: triangle (jernih) + square (tajam, menembus keramaian kantin)
+            [["triangle", 1], ["square", 0.35]].forEach(([type, peak]) => {
+              const o = c.createOscillator(), g = c.createGain();
+              o.type = type;
+              o.frequency.value = f;
+              o.connect(g); g.connect(master);
+              const t = c.currentTime + at;
+              g.gain.setValueAtTime(0.0001, t);
+              g.gain.exponentialRampToValueAtTime(peak, t + 0.03);
+              g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+              o.start(t); o.stop(t + dur + 0.04);
+            });
+          });
+        }
+      } catch { /* audio diblokir browser */ }
+      // Getar ponsel
+      try {
+        if (navigator.vibrate) {
+          if (name === "order") navigator.vibrate([500, 150, 500, 150, 500, 150, 700]);
+          else if (name === "ready") navigator.vibrate([400, 120, 400, 120, 400, 120, 600]);
+          else if (name === "paid") navigator.vibrate([250, 100, 250, 100, 250]);
+        }
+      } catch {}
     };
-    const unlock = () => { try { ensure(); } catch { /* abaikan */ } };
-    document.addEventListener("pointerdown", unlock, { once: true });
-    return { get on() { return on; }, set(v) { on = !!v; store.set("fc_sound", on); }, play, unlock };
+    const unlock = () => { try { ensure(); } catch {} };
+    ["pointerdown", "touchstart", "click", "touchend"].forEach((ev) => {
+      document.addEventListener(ev, unlock, { once: true, passive: true });
+    });
+    // Ulangi pengingat sampai pengguna menyentuh layar (atau batas maksimal tercapai)
+    let nagTimer = null;
+    const stopNag = () => { if (nagTimer) { clearInterval(nagTimer); nagTimer = null; } };
+    const nag = (name, { every = 20000, max = 5 } = {}) => {
+      stopNag();
+      let n = 0; const t0 = Date.now();
+      nagTimer = setInterval(() => { if (++n > max) return stopNag(); play(name); }, every);
+      const off = () => { if (Date.now() - t0 > 1500) { stopNag(); document.removeEventListener("pointerdown", off); } };
+      document.addEventListener("pointerdown", off);
+    };
+    return { get on() { return on; }, set(v) { on = !!v; store.set("fc_sound", on); }, play, unlock, nag, stopNag };
   })();
 
-  // ---------- notifikasi sistem (muncul walau tab/aplikasi sedang di latar belakang) ----------
-  // Catatan: ini bekerja selama halaman masih terbuka (boleh di tab lain / layar mati sebentar).
-  // Notifikasi saat browser benar-benar ditutup membutuhkan Web Push (server push) yang belum dipasang.
+  // ---------- notifikasi sistem (muncul walau tab/aplikasi di latar belakang / layar redup) ----------
   const notify = (() => {
     const supported = "Notification" in window;
     let reg = null;
-    if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").then((r) => { reg = r; }).catch(() => {});
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker.register("/sw.js").then((r) => { reg = r; }).catch(() => {});
+    }
     const permission = () => (supported ? Notification.permission : "unsupported");
-    // harus dipanggil dari sentuhan/klik pengguna supaya browser mau menampilkan izin
     const ask = async () => {
       if (!supported || Notification.permission !== "default") return permission();
       try { return await Notification.requestPermission(); } catch { return "denied"; }
     };
     const show = async (title, body, { tag, always = false } = {}) => {
       if (!supported || Notification.permission !== "granted") return false;
-      if (!always && !document.hidden) return false; // halaman sedang dilihat: cukup toast + suara
-      const opts = { body, tag, renotify: !!tag, icon: "/assets/logo.png", badge: "/assets/logo.png", vibrate: [200, 100, 200], data: { url: location.pathname } };
+      if (!always && !document.hidden) return false;
+      const opts = {
+        body,
+        tag,
+        renotify: !!tag,
+        icon: window.FOODCOURT_LOGO || "/assets/logo.png",
+        badge: window.FOODCOURT_LOGO || "/assets/logo.png",
+        vibrate: [500, 150, 500, 150, 500, 150, 700], silent: false,
+        requireInteraction: true,
+        data: { url: location.pathname + location.search + location.hash }
+      };
       try {
         const r = reg || (navigator.serviceWorker && (await navigator.serviceWorker.ready));
         if (r && r.showNotification) { await r.showNotification(title, opts); return true; }
-      } catch { /* lanjut ke cara lama */ }
+      } catch {}
       try { new Notification(title, opts); return true; } catch { return false; }
     };
     return { supported, permission, ask, show };
@@ -231,9 +274,64 @@
       if (!document.hidden || timer) return;
       base = document.title;
       let on = false;
-      timer = setInterval(() => { on = !on; document.title = on ? text : base; }, 1000);
+      timer = setInterval(() => { on = !on; document.title = on ? text : base; }, 600);
     };
   })();
 
-  window.FC = { API, api, ApiError, icon, esc, rupiah, jam, tanggal, $, $$, safeImg, toast, openSheet, confirmDialog, compressImage, connectSocket, store, sound, notify, attention };
+  // Layar tetap menyala (Screen Wake Lock) agar dashboard kasir / notifikasi tidak tertidur saat sepi
+  const keepAwake = (() => {
+    let sentinel = null;
+    const enable = async () => {
+      try {
+        if ("wakeLock" in navigator && !sentinel) {
+          sentinel = await navigator.wakeLock.request("screen");
+          sentinel.addEventListener("release", () => { sentinel = null; });
+        }
+      } catch {}
+    };
+    const disable = () => {
+      if (sentinel) { try { sentinel.release(); } catch {} sentinel = null; }
+    };
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "visible" && !sentinel) enable();
+    });
+    return { enable, disable };
+  })();
+
+  window.FC = { API, api, ApiError, icon, esc, rupiah, jam, tanggal, $, $$, safeImg, toast, openSheet, confirmDialog, compressImage, connectSocket, store, sound, notify, attention, keepAwake };
+})();
+
+// ---------- Tombol mata: tampilkan / sembunyikan password di semua input password ----------
+(function () {
+  const svg = (d) => `<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
+  const EYE = svg('<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>');
+  const EYE_OFF = svg('<path d="M17.94 17.94A10.9 10.9 0 0 1 12 19c-6.5 0-10-7-10-7a18.4 18.4 0 0 1 5.06-5.94M9.9 4.24A9.1 9.1 0 0 1 12 4c6.5 0 10 7 10 7a18.5 18.5 0 0 1-2.16 3.19M1 1l22 22"/><path d="M14.12 14.12a3 3 0 1 1-4.24-4.24"/>');
+  function enhance(input) {
+    if (input.dataset.eye) return;
+    input.dataset.eye = "1";
+    const wrap = document.createElement("div");
+    wrap.style.cssText = "position:relative";
+    input.parentNode.insertBefore(wrap, input);
+    wrap.appendChild(input);
+    input.style.paddingRight = "46px";
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.setAttribute("aria-label", "Tampilkan password");
+    btn.innerHTML = EYE;
+    btn.style.cssText = "position:absolute;right:6px;top:50%;transform:translateY(-50%);width:36px;height:36px;display:grid;place-items:center;border:0;background:transparent;color:var(--muted);cursor:pointer;border-radius:8px";
+    btn.addEventListener("click", () => {
+      const show = input.type === "password";
+      input.type = show ? "text" : "password";
+      btn.innerHTML = show ? EYE_OFF : EYE;
+      btn.setAttribute("aria-label", show ? "Sembunyikan password" : "Tampilkan password");
+      input.focus();
+    });
+    wrap.appendChild(btn);
+  }
+  const scan = (root) => root.querySelectorAll && root.querySelectorAll('input[type="password"]').forEach(enhance);
+  new MutationObserver((list) => list.forEach((m) => m.addedNodes.forEach((n) => {
+    if (n.nodeType !== 1) return;
+    if (n.matches && n.matches('input[type="password"]')) enhance(n); else scan(n);
+  }))).observe(document.documentElement, { childList: true, subtree: true });
+  document.addEventListener("DOMContentLoaded", () => scan(document));
 })();
