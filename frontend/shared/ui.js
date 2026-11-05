@@ -39,6 +39,7 @@
     wallet: '<path d="M20 7H5a2 2 0 0 1 0-4h13v4"/><path d="M3 5v14a2 2 0 0 0 2 2h15a1 1 0 0 0 1-1V8a1 1 0 0 0-1-1"/><path d="M16 14h.01"/>',
     inbox: '<path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.5 5.1 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.5-6.9A2 2 0 0 0 16.8 4H7.2a2 2 0 0 0-1.7 1.1z"/>',
     note: '<path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M8 13h8M8 17h5"/>',
+    flame: '<path d="M8.5 14.5A2.5 2.5 0 0 0 11 17c1.38 0 2.5-1.12 2.5-2.5 0-1.63-1.07-2.68-1.74-3.34A12.75 12.75 0 0 1 10.1 7c-.24 1.8-.82 3.12-1.6 4.16-.7 1-1 2.05-1 3.34z"/><path d="M12 2c1 3 4 4.5 4 8.5a7.5 7.5 0 1 1-15 0C1 6.5 6 4 7.5 2c0 2 1.5 3 2.5 3s1.5-1 2-3z"/>',
     star: '<path d="m12 2 3.1 6.3 6.9 1-5 4.9 1.2 6.8-6.2-3.3L5.8 21 7 14.2 2 9.3l6.9-1z"/>'
   };
   function icon(name, cls = "") {
@@ -134,15 +135,28 @@
   // format "jpeg" untuk foto menu, "png" untuk QRIS (supaya tetap tajam & terbaca scanner)
   async function compressImage(file, { max = 900, format = "jpeg", quality = 0.82 } = {}) {
     if (!/^image\/(jpeg|png|webp)$/.test(file.type)) throw new Error("Pilih gambar JPG, PNG, atau WebP");
-    const bmp = await createImageBitmap(file);
-    const scale = Math.min(1, max / Math.max(bmp.width, bmp.height));
-    const w = Math.max(1, Math.round(bmp.width * scale));
-    const h = Math.max(1, Math.round(bmp.height * scale));
+    let imgSource;
+    try {
+      imgSource = await createImageBitmap(file);
+    } catch {
+      imgSource = await new Promise((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => resolve(img);
+        img.onerror = () => reject(new Error("Format gambar tidak didukung"));
+        img.src = URL.createObjectURL(file);
+      });
+    }
+    const width = imgSource.width || imgSource.naturalWidth || max;
+    const height = imgSource.height || imgSource.naturalHeight || max;
+    const scale = Math.min(1, max / Math.max(width, height));
+    const w = Math.max(1, Math.round(width * scale));
+    const h = Math.max(1, Math.round(height * scale));
     const canvas = document.createElement("canvas");
     canvas.width = w; canvas.height = h;
     const ctx = canvas.getContext("2d");
     if (format === "jpeg") { ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, w, h); }
-    ctx.drawImage(bmp, 0, 0, w, h);
+    ctx.drawImage(imgSource, 0, 0, w, h);
+    if (imgSource.close) { try { imgSource.close(); } catch {} }
     const blob = await new Promise((r) => canvas.toBlob(r, "image/" + format, quality));
     if (!blob) throw new Error("Gagal memproses gambar");
     return new File([blob], "gambar." + (format === "png" ? "png" : "jpg"), { type: blob.type });

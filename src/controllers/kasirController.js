@@ -7,6 +7,7 @@ import { emitToOrder } from "../sockets/socket.js";
 import { HttpError, toInt } from "../utils.js";
 import { saveToken, deleteToken } from "../config/push.js";
 import { batalkanSubOrder, bersihAlasan } from "./cancelService.js";
+import { cleanupStaleOrders } from "../config/cleanup.js";
 
 const STATUS_ORDER = ["diterima", "diproses", "siap", "diambil"];
 
@@ -27,7 +28,7 @@ export async function login(req, res) {
   if (!user || !(await bcrypt.compare(password, user.password))) {
     throw new HttpError(401, "Username atau password salah");
   }
-  if (user.role !== "kasir") throw new HttpError(403, "Akun ini login lewat halaman Panel Dev / Admin");
+  if (user.role !== "kasir") throw new HttpError(403, "Akun ini login lewat halaman Panel Admin");
   if (!user.tenant_id) throw new HttpError(403, "Akun ini belum terhubung ke kantin");
 
   const token = jwt.sign(
@@ -68,7 +69,7 @@ export async function getDashboard(req, res) {
             COALESCE(SUM(CASE WHEN status_bayar = 'lunas' AND status_order <> 'dibatalkan' AND metode_bayar = 'qris' THEN subtotal ELSE 0 END), 0) AS pemasukan_qris,
             COALESCE(SUM(CASE WHEN status_bayar = 'lunas' AND status_order <> 'dibatalkan' AND metode_bayar = 'cash' THEN subtotal ELSE 0 END), 0) AS pemasukan_cash
      FROM order_tenants
-     WHERE tenant_id = ? AND DATE(created_at) = CURDATE() AND disembunyikan_kantin = 0`,
+     WHERE tenant_id = ? AND DATE(created_at) = CURDATE()`,
     [req.tenantId]
   );
   res.json(Object.fromEntries(Object.entries(sum).map(([k, v]) => [k, Number(v)])));
@@ -77,6 +78,7 @@ export async function getDashboard(req, res) {
 // GET /api/kasir/orders -> pesanan HARI INI saja. Pesanan hari sebelumnya otomatis hilang dari tampilan
 // (datanya tetap ada untuk laporan), dan pesanan yang "dihapus" kantin ikut disembunyikan.
 export async function getOrdersMasuk(req, res) {
+  cleanupStaleOrders().catch(() => {});
   const [rows] = await pool.query(
     `SELECT ot.id AS order_tenant_id, ot.nomor_antrian, ot.status_bayar, ot.status_order,
             ot.order_id, ot.metode_bayar, ot.subtotal, ot.catatan, ot.tipe_makan, ot.paid_via, ot.paid_at, ot.created_at,
@@ -137,6 +139,34 @@ export async function updateStatusOrder(req, res) {
   if (upd.affectedRows === 0) throw new HttpError(409, "Pesanan ini sudah dibatalkan");
   emitToOrder(found[0].order_id, "status_update", { order_tenant_id: id, status_order });
   res.json({ message: "Status diperbarui" });
+}
+
+// POST /api/kasir/orders/:orderTenantId/panggil -> panggil / buzz pelanggan jika pesanan sudah siap diambil
+export async function panggilPelanggan(req, res) {
+  const id = toInt(req.params.orderTenantId);
+  if (Number.isNaN(id)) throw new HttpError(400, "ID tidak valid");
+  const [rows] = await pool.query(
+    `SELECT ot.id, ot.order_id, ot.nomor_antrian, ot.status_order, t.nama_kantin, tb.nomor_meja
+     FROM order_tenants ot
+     JOIN orders o ON o.id = ot.order_id
+     JOIN tenants t ON t.id = ot.tenant_id
+     JOIN tables_fc tb ON tb.id = o.table_id
+     WHERE ot.id = ? AND ot.tenant_id = ?`,
+    [id, req.tenantId]
+  );
+  const o = rows[0];
+  if (!o) throw new HttpError(404, "Pesanan tidak ditemukan");
+  if (o.status_order === "diambil" || o.status_order === "dibatalkan") {
+    throw new HttpError(409, "Pesanan sudah selesai atau dibatalkan");
+  }
+  emitToOrder(o.order_id, "panggil_pelanggan", {
+    order_tenant_id: o.id,
+    order_id: o.order_id,
+    nomor_antrian: o.nomor_antrian,
+    nama_kantin: o.nama_kantin,
+    nomor_meja: o.nomor_meja
+  });
+  res.json({ message: `Pelanggan Meja ${o.nomor_meja} (Antrian #${o.nomor_antrian}) berhasil dipanggil` });
 }
 
 // PATCH /api/kasir/orders/:orderTenantId/bayar -> konfirmasi pembayaran CASH lunas.

@@ -5,7 +5,7 @@ import { parseImages } from "../middleware/upload.js";
 import { wrap } from "../utils.js";
 import {
   login, getMe, setKantinStatus, getDashboard, getOrdersMasuk, getOrderItems,
-  updateStatusOrder, konfirmasiBayar, batalkanOrder, hapusOrder, bersihkanOrder, listMenus, tambahMenu, updateMenu,
+  updateStatusOrder, konfirmasiBayar, batalkanOrder, hapusOrder, bersihkanOrder, panggilPelanggan, listMenus, tambahMenu, updateMenu,
   updateStatusMenu, deleteMenu, getLaporan, registerPushToken, unregisterPushToken
 } from "../controllers/kasirController.js";
 
@@ -31,6 +31,7 @@ router.get("/orders/:orderTenantId/items", wrap(getOrderItems));
 router.post("/orders/:orderTenantId/batal", wrap(batalkanOrder));
 router.delete("/orders/:orderTenantId", wrap(hapusOrder));
 router.patch("/orders/:orderTenantId/status", wrap(updateStatusOrder));
+router.post("/orders/:orderTenantId/panggil", wrap(panggilPelanggan));
 router.patch("/orders/:orderTenantId/bayar", wrap(konfirmasiBayar));
 router.get("/menus", wrap(listMenus));
 router.post("/menus", parseImages(["foto"]), wrap(tambahMenu));

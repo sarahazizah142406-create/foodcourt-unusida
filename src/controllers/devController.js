@@ -167,9 +167,15 @@ export async function setKasirAccount(req, res) {
 export async function deleteTenant(req, res) {
   const id = toInt(req.params.id);
   if (Number.isNaN(id)) throw new HttpError(400, "ID tidak valid");
+  const [tn] = await pool.query("SELECT nama_kantin FROM tenants WHERE id = ?", [id]);
+  if (!tn[0]) throw new HttpError(404, "Kantin tidak ditemukan");
+  if (String(req.body?.konfirmasi || "").trim().toLowerCase() !== tn[0].nama_kantin.trim().toLowerCase()) {
+    throw new HttpError(400, "Ketik nama kantin dengan benar untuk menghapus");
+  }
   const conn = await pool.getConnection();
   try {
     await conn.beginTransaction();
+    await conn.query("DELETE FROM setoran_qris WHERE tenant_id = ?", [id]);
     await conn.query("DELETE FROM order_items WHERE order_tenant_id IN (SELECT id FROM order_tenants WHERE tenant_id = ?)", [id]);
     await conn.query("DELETE FROM order_tenants WHERE tenant_id = ?", [id]);
     await conn.query("DELETE FROM queue_counters WHERE tenant_id = ?", [id]);
@@ -263,9 +269,18 @@ export async function getRekap(req, res) {
      GROUP BY t.id, t.nama_kantin ORDER BY t.nama_kantin ASC`,
     [dari, sampai]
   );
+  const [setor] = await pool.query(
+    "SELECT tenant_id, COALESCE(SUM(nominal), 0) AS n FROM setoran_qris WHERE dari >= ? AND sampai <= ? GROUP BY tenant_id",
+    [dari, sampai]
+  );
+  const setorMap = new Map(setor.map((x) => [x.tenant_id, Number(x.n)]));
   const kantin = rows.map((r) => {
     const n = numRow(r);
-    return { ...n, total: n.qris_total + n.cash_total, jumlah_order: n.qris_order + n.cash_order };
+    const disetor = setorMap.get(n.tenant_id) || 0;
+    return {
+      ...n, total: n.qris_total + n.cash_total, jumlah_order: n.qris_order + n.cash_order,
+      disetor, sisa_qris: Math.max(0, n.qris_total - disetor)
+    };
   });
   const sum = (k) => kantin.reduce((a, r) => a + r[k], 0);
   const [[fee]] = await pool.query(
@@ -279,7 +294,7 @@ export async function getRekap(req, res) {
       qris_total: sum("qris_total"), qris_order: sum("qris_order"),
       cash_total: sum("cash_total"), cash_order: sum("cash_order"),
       total: sum("total"), jumlah_order: sum("jumlah_order"),
-      biaya_layanan_qris: Number(fee.fee)
+      biaya_layanan_qris: Number(fee.fee), sisa_qris: sum("sisa_qris")
     }
   });
 }
@@ -349,4 +364,93 @@ export async function setAdminAccount(req, res) {
 // GET /api/dev/me -> role + hak akses terbaru (dibaca dari database)
 export async function me(req, res) {
   res.json({ role: req.role, izin: req.role === "dev" ? IZIN_VALID : [...req.izin] });
+}
+
+
+// ---------- TAMBAHAN ----------
+
+// PUT /api/dev/password  body: { lama, baru }  -> ganti password akun yang sedang login
+export async function gantiPassword(req, res) {
+  const lama = String(req.body?.lama || ""), baru = String(req.body?.baru || "");
+  if (baru.length < 8) throw new HttpError(400, "Password baru minimal 8 karakter");
+  if (baru === lama) throw new HttpError(400, "Password baru harus berbeda dari yang lama");
+  const [r] = await pool.query("SELECT password FROM users WHERE id = ?", [req.userId]);
+  if (!r[0] || !(await bcrypt.compare(lama, r[0].password))) throw new HttpError(400, "Password lama salah");
+  await pool.query("UPDATE users SET password = ? WHERE id = ?", [await bcrypt.hash(baru, 10), req.userId]);
+  res.json({ message: "Password berhasil diganti" });
+}
+
+// GET /api/dev/grafik?hari=7|30  -> penjualan harian, kantin terlaris, jam ramai
+export async function getGrafik(req, res) {
+  const hari = Math.min(Math.max(toInt(req.query.hari) || 7, 1), 90);
+  const where = "ot.status_bayar = 'lunas' AND ot.status_order <> 'dibatalkan' AND ot.created_at >= DATE_SUB(CURDATE(), INTERVAL ? DAY)";
+  const [harian] = await pool.query(
+    `SELECT DATE_FORMAT(ot.created_at, '%Y-%m-%d') AS tanggal, COUNT(*) AS jumlah_order, COALESCE(SUM(ot.subtotal), 0) AS total
+     FROM order_tenants ot WHERE ${where}
+     GROUP BY DATE_FORMAT(ot.created_at, '%Y-%m-%d') ORDER BY DATE_FORMAT(ot.created_at, '%Y-%m-%d') ASC`,
+    [hari - 1]
+  );
+  const [terlaris] = await pool.query(
+    `SELECT t.nama_kantin, COUNT(*) AS jumlah_order, COALESCE(SUM(ot.subtotal), 0) AS total
+     FROM order_tenants ot JOIN tenants t ON t.id = ot.tenant_id WHERE ${where}
+     GROUP BY t.id, t.nama_kantin ORDER BY total DESC LIMIT 5`,
+    [hari - 1]
+  );
+  const [jam] = await pool.query(
+    `SELECT HOUR(ot.created_at) AS jam, COUNT(*) AS jumlah FROM order_tenants ot WHERE ${where}
+     GROUP BY HOUR(ot.created_at) ORDER BY jumlah DESC LIMIT 3`,
+    [hari - 1]
+  );
+  res.json({ hari, harian: harian.map(numRow), terlaris: terlaris.map(numRow), jam_ramai: jam.map(numRow) });
+}
+
+// GET /api/dev/audit?limit=100 -> log aktivitas (khusus dev)
+export async function listAudit(req, res) {
+  const limit = Math.min(Math.max(toInt(req.query.limit) || 100, 1), 300);
+  const [rows] = await pool.query(
+    `SELECT a.id, a.role, a.aksi, a.created_at, u.username
+     FROM audit_log a LEFT JOIN users u ON u.id = a.user_id
+     ORDER BY a.id DESC LIMIT ?`,
+    [limit]
+  );
+  res.json(rows);
+}
+
+// POST /api/dev/setoran  body: { tenant_id, dari, sampai, nominal } -> catat setoran QRIS ke kantin
+export async function createSetoran(req, res) {
+  const tenantId = toInt(req.body?.tenant_id), nominal = toInt(req.body?.nominal);
+  const dari = req.body?.dari, sampai = req.body?.sampai;
+  if (Number.isNaN(tenantId) || Number.isNaN(nominal) || nominal <= 0 || !isDate(dari) || !isDate(sampai) || dari > sampai) {
+    throw new HttpError(400, "Data setoran tidak valid");
+  }
+  const [t] = await pool.query("SELECT id FROM tenants WHERE id = ?", [tenantId]);
+  if (!t[0]) throw new HttpError(404, "Kantin tidak ditemukan");
+  await pool.query(
+    "INSERT INTO setoran_qris (tenant_id, dari, sampai, nominal, user_id) VALUES (?, ?, ?, ?, ?)",
+    [tenantId, dari, sampai, nominal, req.userId]
+  );
+  res.status(201).json({ message: "Setoran dicatat" });
+}
+
+// PATCH /api/dev/tables/:id  body: { nomor_meja }
+export async function updateTable(req, res) {
+  const id = toInt(req.params.id);
+  const n = String(req.body?.nomor_meja || "").trim();
+  if (Number.isNaN(id)) throw new HttpError(400, "ID tidak valid");
+  if (!n || n.length > 10) throw new HttpError(400, "Nomor meja wajib diisi (maks. 10 karakter)");
+  const [dup] = await pool.query("SELECT id FROM tables_fc WHERE nomor_meja = ? AND id <> ? LIMIT 1", [n, id]);
+  if (dup[0]) throw new HttpError(409, "Nomor meja tersebut sudah ada");
+  const [r] = await pool.query("UPDATE tables_fc SET nomor_meja = ? WHERE id = ?", [n, id]);
+  if (r.affectedRows === 0) throw new HttpError(404, "Meja tidak ditemukan");
+  res.json({ message: "Nomor meja diperbarui" });
+}
+
+// POST /api/dev/tables/:id/qr -> buat ulang kode QR (kode lama langsung tidak berlaku)
+export async function regenerateQr(req, res) {
+  const id = toInt(req.params.id);
+  if (Number.isNaN(id)) throw new HttpError(400, "ID tidak valid");
+  const [t] = await pool.query("SELECT nomor_meja FROM tables_fc WHERE id = ?", [id]);
+  if (!t[0]) throw new HttpError(404, "Meja tidak ditemukan");
+  await pool.query("UPDATE tables_fc SET qr_code = ? WHERE id = ?", [newQrCode(t[0].nomor_meja), id]);
+  res.json({ message: "QR meja dibuat ulang. Cetak ulang QR-nya." });
 }

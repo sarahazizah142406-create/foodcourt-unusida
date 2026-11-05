@@ -95,7 +95,7 @@ async function start() {
       console.log(`🚀 Server jalan di port ${PORT}`);
       console.log(`   Customer : http://localhost:${PORT}/customer/?qr=MEJA-01-A1B2C3`);
       console.log(`   Kantin   : http://localhost:${PORT}/kantin/`);
-      console.log(`   Panel Dev: http://localhost:${PORT}/dev/`);
+      console.log(`   Panel Admin: http://localhost:${PORT}/dev/`);
     });
   } catch (err) {
     console.error("❌ Gagal start:", err.message);

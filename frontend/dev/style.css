@@ -94,7 +94,6 @@ main { padding: 20px 0 48px; }
 }
 
 .tabbar.dock .tab { font-size: 11.5px; }
-@media (min-width: 900px) { .tabbar.dock { top: 62px; z-index: 29; background: var(--bg); } }
 @media (max-width: 899px) { main { padding-bottom: 24px; } .toasts { bottom: 100px; } }
 
 /* ---------- rekap pembayaran ---------- */
@@ -124,4 +123,34 @@ main { padding: 20px 0 48px; }
 
 @media (prefers-color-scheme: dark) {
   .top { background: linear-gradient(145deg, #172A22, #1B4332); border-bottom: 1px solid var(--line); }
+}
+
+
+/* ---------- grafik, log, meja ---------- */
+.gr-wrap { display: grid; gap: 12px; grid-template-columns: 1fr; }
+@media (min-width: 900px) { .gr-wrap { grid-template-columns: 1.6fr 1fr; align-items: start; } }
+.bars { padding: 16px; display: grid; gap: 10px; }
+.bar-row { display: grid; grid-template-columns: 56px 1fr auto; gap: 10px; align-items: center; font-size: 13px; }
+.bar-track { height: 10px; background: var(--fill-soft); border-radius: 99px; overflow: hidden; }
+.bar-fill { height: 100%; background: var(--brand); border-radius: 99px; }
+.top-list { padding: 6px 16px; }
+.top-list .r { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-top: 1px solid var(--line); }
+.top-list .n { width: 26px; height: 26px; border-radius: 50%; background: var(--brand-soft); color: var(--brand-ink); display: grid; place-items: center; font-weight: 700; font-size: 13px; flex: none; }
+.top-list .t { flex: 1; font-weight: 600; min-width: 0; overflow-wrap: anywhere; }
+.top-list .q { color: var(--muted); font-size: 12.5px; text-align: right; }
+.toolbar { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+.toolbar .search { flex: 1; min-width: 200px; }
+.meja .pick { justify-self: end; font-size: 12px; color: var(--muted); display: inline-flex; align-items: center; gap: 5px; cursor: pointer; }
+
+@media print {
+  .print-doc { grid-column: 1 / -1; color: #000 !important; background: #fff !important; font-size: 12px; }
+  .print-doc h2 { font-size: 20px; font-style: normal; margin-bottom: 2px; color: #000 !important; }
+  .print-doc p { margin-bottom: 10px; color: #333 !important; }
+  .print-doc table { width: 100%; border-collapse: collapse; }
+  .print-doc th, .print-doc td { border: 1px solid #000; padding: 6px 8px; text-align: left; color: #000 !important; background: #fff !important; }
+  .print-doc th { font-weight: 700; }
+  .print-doc .n { text-align: right; white-space: nowrap; }
+  .print-doc .par { width: 60px; }
+  .print-doc tfoot td { font-weight: 800; }
+  .print-doc small { display: block; margin-top: 8px; color: #555 !important; }
 }

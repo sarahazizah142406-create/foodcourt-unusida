@@ -1,5 +1,5 @@
 /* ============================================================
-   Panel Developer — kelola kantin, rekap pembayaran per kantin, akun kasir, meja & QR
+   Panel Admin — kelola kantin, rekap pembayaran per kantin, akun kasir, meja & QR
    ============================================================ */
 const { api, esc, rupiah, icon, toast, safeImg, store, openSheet, confirmDialog, compressImage, $, $$ } = FC;
 
@@ -22,7 +22,7 @@ function renderLogin() {
   $root.innerHTML = `
     <div class="login-wrap"><form class="login-box" id="f">
       <div class="logo" style="background:#25302A">${icon("key")}</div>
-      <h1>Panel Developer</h1><p>Food Court UNUSIDA — kelola kantin, rekap pembayaran, dan meja.</p>
+      <h1>Panel Admin</h1><p>Food Court UNUSIDA — kelola kantin, rekap pembayaran, dan meja.</p>
       <div class="field"><label for="u">Username</label><input class="input" id="u" autocomplete="username" autocapitalize="none" required></div>
       <div class="field"><label for="p">Password</label><input class="input" id="p" type="password" autocomplete="current-password" required></div>
       <div class="form-error" id="err" hidden></div>
@@ -44,8 +44,8 @@ function renderLogin() {
 // ---------- KERANGKA ----------
 const can = (k) => state.role === "dev" || state.izin.includes(k);
 function tabList() {
-  return [["kantin", "store", "Kantin"], ["rekap", "wallet", "Rekap"], ["meja", "table", "Meja & QR"], ["admin", "key", "Admin"]]
-    .filter(([k]) => (k === "admin" ? state.role === "dev" : can(k === "kantin" ? "kantin_lihat" : k)));
+  return [["kantin", "store", "Kantin"], ["rekap", "wallet", "Rekap"], ["meja", "table", "Meja & QR"], ["admin", "key", "Admin"], ["log", "note", "Log"]]
+    .filter(([k]) => (k === "admin" || k === "log" ? state.role === "dev" : can(k === "kantin" ? "kantin_lihat" : k)));
 }
 function renderShell() {
   const tabs = tabList();
@@ -54,7 +54,8 @@ function renderShell() {
   $root.innerHTML = `
     <header class="top"><div class="wrap">
       <div class="row">
-        <div class="who"><div class="logo">${icon("key")}</div><div><h1>${state.role === "admin" ? "Panel Admin" : "Panel Developer"}</h1><small>@${esc(state.username)}</small></div></div>
+        <div class="who"><div class="logo">${icon("key")}</div><div><h1>${"Panel Admin"}</h1><small>@${esc(state.username)}</small></div></div>
+        <button class="btn ghost icon" id="pw" aria-label="Ganti password" title="Ganti password">${icon("key")}</button>
         <button class="btn ghost icon" id="out" aria-label="Keluar">${icon("logout")}</button>
       </div>
     </div></header>
@@ -70,13 +71,14 @@ function renderShell() {
   }
   $("#out").addEventListener("click", async () => { if (await confirmDialog({ title: "Keluar dari panel?", okText: "Keluar" })) logout(); });
   $("#tabs").addEventListener("click", (e) => { const b = e.target.closest("[data-tab]"); if (b) { state.tab = b.dataset.tab; drawTab(); } });
+  $("#pw").addEventListener("click", passwordModal);
   drawTab();
 }
 const content = () => $("#content");
 function drawTab() {
-  if (!tabList().length) { content().innerHTML = `<div class="state"><h3>Belum ada akses</h3><p>Hubungi developer untuk mengaktifkan hak akses akun ini.</p></div>`; return; }
+  if (!tabList().length) { content().innerHTML = `<div class="state"><h3>Belum ada akses</h3><p>Hubungi admin utama untuk mengaktifkan hak akses akun ini.</p></div>`; return; }
   $$("#tabs .tab").forEach((t) => t.classList.toggle("active", t.dataset.tab === state.tab));
-  if (state.tab === "kantin") viewKantin(); else if (state.tab === "rekap") viewRekap(); else if (state.tab === "admin") viewAdmin(); else viewMeja();
+  if (state.tab === "kantin") viewKantin(); else if (state.tab === "rekap") viewRekap(); else if (state.tab === "admin") viewAdmin(); else if (state.tab === "log") viewLog(); else viewMeja();
 }
 const loading = () => { content().innerHTML = `<div class="state"><div class="spinner"></div>Memuat...</div>`; };
 
@@ -96,16 +98,21 @@ async function viewKantin() {
       <div class="card stat"><div class="k">Order hari ini</div><div class="v">${m.total_order_hari_ini}</div></div>
       <div class="card stat"><div class="k">Omzet lunas hari ini</div><div class="v" style="font-size:19px">${rupiah(m.omzet_hari_ini)}</div></div>
     </div>
-    <div class="section-title"><h2>Data kantin</h2>${can("kantin_tambah") ? `<button class="btn" id="add">${icon("plus", "sm")}Tambah kantin</button>` : ""}</div>
-    <div class="tenants" id="tenants"></div>`;
+    <div id="grafik"></div><div class="section-title"><h2>Data kantin</h2>${can("kantin_tambah") ? `<button class="btn" id="add">${icon("plus", "sm")}Tambah kantin</button>` : ""}</div>
+    <div class="toolbar" style="margin-bottom:12px"><div class="search">${icon("search")}<input class="input" id="tq" placeholder="Cari kantin atau akun kasir..." value="${esc(state.q || "")}"></div></div><div class="tenants" id="tenants"></div>`;
   $("#add")?.addEventListener("click", () => tenantModal());
+  $("#tq")?.addEventListener("input", (e) => { state.q = e.target.value; drawTenants(); });
   drawTenants();
+  loadGrafik();
 }
 
 function drawTenants() {
   const el = $("#tenants");
   if (!state.tenants.length) { el.innerHTML = `<div class="state" style="grid-column:1/-1">${icon("store")}<h3>Belum ada kantin</h3><p>Tambahkan kantin pertama.</p></div>`; return; }
-  el.innerHTML = state.tenants.map((t) => {
+  const q = String(state.q || "").trim().toLowerCase();
+  const list = q ? state.tenants.filter((t) => `${t.nama_kantin} ${t.kasir_username || ""}`.toLowerCase().includes(q)) : state.tenants;
+  if (!list.length) { el.innerHTML = `<div class="state" style="grid-column:1/-1"><h3>Tidak ditemukan</h3></div>`; return; }
+  el.innerHTML = list.map((t) => {
     const foto = safeImg(t.foto); const open = t.status === "buka";
     return `<article class="card tenant" data-id="${t.id}">
       <div class="t-head">
@@ -135,8 +142,8 @@ document.addEventListener("click", async (e) => {
   } else if ((t = find("edit"))) tenantModal(t);
   else if ((t = find("kasir"))) kasirModal(t);
   else if ((t = find("del"))) {
-    if (!(await confirmDialog({ title: `Hapus "${t.nama_kantin}"?`, message: "Semua menu, akun kasir, dan riwayat pesanan kantin ini ikut terhapus permanen.", okText: "Hapus permanen", danger: true }))) return;
-    try { await call(`/api/dev/tenants/${t.id}`, { method: "DELETE" }); toast("Kantin dihapus"); viewKantin(); } catch (err) { fail(err, "Gagal menghapus"); }
+    const ketik = await confirmType(t.nama_kantin); if (!ketik) return;
+    try { await call(`/api/dev/tenants/${t.id}`, { method: "DELETE", body: { konfirmasi: ketik } }); toast("Kantin dihapus"); viewKantin(); } catch (err) { fail(err, "Gagal menghapus"); }
   }
 });
 
@@ -167,7 +174,7 @@ function tenantModal(t = null) {
       <button class="btn ghost icon sm" data-close aria-label="Tutup">${icon("x")}</button></div>
     <div class="field"><label for="nm">Nama kantin</label><input class="input" id="nm" maxlength="100" placeholder="Contoh: Kantin Bu Ani" value="${esc(t?.nama_kantin || "")}"></div>
     <div class="field" id="foto"></div>
-    ${t ? "" : state.role !== "dev" ? `<p class="hint" style="margin:0 0 6px">Akun kasir untuk kantin ini dibuat oleh developer.</p>` : `
+    ${t ? "" : state.role !== "dev" ? `<p class="hint" style="margin:0 0 6px">Akun kasir untuk kantin ini dibuat oleh admin utama.</p>` : `
       <div class="field"><label for="un">Username kasir</label><input class="input" id="un" autocapitalize="none" placeholder="kasir_ani"></div>
       <div class="field"><label for="pw">Password kasir</label><input class="input" id="pw" type="text" placeholder="Minimal 6 karakter"></div>
       <p class="hint" style="margin:0 0 6px">Pembayaran QRIS memakai satu akun food court, jadi tidak perlu mengunggah QRIS per kantin.</p>`}
@@ -228,7 +235,7 @@ async function viewRekap() {
   if (!state.rekap) { const [dari, sampai] = rangeOf("hari"); state.rekap = { preset: "hari", dari, sampai }; }
   const R = state.rekap;
   content().innerHTML = `
-    <div class="section-title" style="margin-top:0"><h2>Rekap pembayaran</h2><button class="btn ghost" id="rkCsv">${icon("download", "sm")}Unduh CSV</button></div>
+    <div class="section-title" style="margin-top:0"><h2>Rekap pembayaran</h2><div style="display:flex;gap:8px"><button class="btn ghost" id="rkPrint">${icon("printer", "sm")}Cetak</button><button class="btn ghost" id="rkCsv">${icon("download", "sm")}CSV</button></div></div>
     <div class="chips" id="rkChips">${PRESETS.map(([k, l]) => `<button class="chip ${R.preset === k ? "active" : ""}" data-rk="${k}">${l}</button>`).join("")}</div>
     <div class="rk-dates" ${R.preset === "custom" ? "" : "hidden"}>
       <div class="field"><label for="rk1">Dari</label><input class="input" type="date" id="rk1" value="${R.dari}"></div>
@@ -255,6 +262,7 @@ async function viewRekap() {
   const onDate = () => { const a = $("#rk1").value, z = $("#rk2").value; if (a && z && a <= z) { R.dari = a; R.sampai = z; load(); } };
   $("#rk1").addEventListener("change", onDate); $("#rk2").addEventListener("change", onDate);
   $("#rkCsv").addEventListener("click", () => exportRekap(state.rekapData));
+  $("#rkPrint").addEventListener("click", () => printRekap(state.rekapData));
   load();
 }
 
@@ -266,6 +274,7 @@ function drawRekap(d) {
       <td class="n">${rupiah(k.qris_total)}<small>${k.qris_order} order</small></td>
       <td class="n">${rupiah(k.cash_total)}<small>${k.cash_order} order</small></td>
       <td class="n"><b>${rupiah(k.total)}</b><small>${k.jumlah_order} order</small></td>
+      <td class="n">${k.qris_total > 0 ? (k.sisa_qris > 0 ? `<b>${rupiah(k.sisa_qris)}</b><small><button class="btn soft sm" data-setor="${k.tenant_id}">Tandai disetor</button></small>` : `<span class="badge green">Sudah disetor</span>`) : "–"}</td>
     </tr>`).join("");
   $("#rkBody").innerHTML = `
     <div class="stats rk-stats">
@@ -276,9 +285,9 @@ function drawRekap(d) {
     ${t.biaya_layanan_qris > 0 ? `<p class="hint" style="margin:10px 2px 0">Biaya layanan QRIS yang dibayar pelanggan pada periode ini: ${rupiah(t.biaya_layanan_qris)} (tidak termasuk angka di atas).</p>` : ""}
     <div class="card rk-card">
       <div class="rk-scroll"><table class="rk-table">
-        <thead><tr><th>Kantin</th><th class="n">QRIS</th><th class="n">Cash</th><th class="n">Total</th></tr></thead>
-        <tbody>${rows || `<tr><td colspan="4" class="state">Belum ada kantin.</td></tr>`}</tbody>
-        <tfoot><tr><td>Total</td><td class="n">${rupiah(t.qris_total)}</td><td class="n">${rupiah(t.cash_total)}</td><td class="n">${rupiah(t.total)}</td></tr></tfoot>
+        <thead><tr><th>Kantin</th><th class="n">QRIS</th><th class="n">Cash</th><th class="n">Total</th><th class="n">Sisa QRIS</th></tr></thead>
+        <tbody>${rows || `<tr><td colspan="5" class="state">Belum ada kantin.</td></tr>`}</tbody>
+        <tfoot><tr><td>Total</td><td class="n">${rupiah(t.qris_total)}</td><td class="n">${rupiah(t.cash_total)}</td><td class="n">${rupiah(t.total)}</td><td class="n">${rupiah(t.sisa_qris || 0)}</td></tr></tfoot>
       </table></div>
     </div>
     <p class="hint" style="margin:8px 2px">Ketuk satu kantin untuk melihat rincian transaksinya. Hanya pesanan yang sudah lunas yang dihitung.</p>`;
@@ -286,10 +295,19 @@ function drawRekap(d) {
 
 function exportRekap(d) {
   if (!d) return;
-  const head = ["Kantin", "Order QRIS", "Total QRIS", "Order Cash", "Total Cash", "Total"];
-  const body = d.kantin.map((k) => [k.nama_kantin, k.qris_order, k.qris_total, k.cash_order, k.cash_total, k.total]);
+  const head = ["Kantin", "Order QRIS", "Total QRIS", "Order Cash", "Total Cash", "Total Pendapatan", "Sisa QRIS Disetor", "Status Setoran"];
+  const body = d.kantin.map((k) => [
+    k.nama_kantin,
+    k.qris_order,
+    k.qris_total,
+    k.cash_order,
+    k.cash_total,
+    k.total,
+    k.sisa_qris || 0,
+    k.qris_total > 0 ? (k.sisa_qris > 0 ? "Belum disetor" : "Sudah disetor") : "-"
+  ]);
   const t = d.total;
-  const rows = [head, ...body, ["TOTAL", t.qris_order, t.qris_total, t.cash_order, t.cash_total, t.total]];
+  const rows = [head, ...body, ["TOTAL", t.qris_order, t.qris_total, t.cash_order, t.cash_total, t.total, t.sisa_qris || 0, ""]];
   const csv = rows.map((r) => r.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(",")).join("\n");
   const a = document.createElement("a");
   a.href = URL.createObjectURL(new Blob(["\ufeff" + csv], { type: "text/csv;charset=utf-8" }));
@@ -345,6 +363,7 @@ async function rekapDetail(tenantId) {
   load();
 }
 document.addEventListener("click", (e) => {
+  if (e.target.closest("[data-setor]")) return;
   const r = e.target.closest("[data-rk-tenant]");
   if (r) rekapDetail(Number(r.dataset.rkTenant));
 });
@@ -373,18 +392,20 @@ async function viewMeja() {
   try { state.tables = await call("/api/dev/tables"); } catch (e) { fail(e); return (content().innerHTML = `<div class="state error">${icon("alert")}<h3>Gagal memuat meja</h3><p>${esc(e.message)}</p></div>`); }
   content().innerHTML = `
     <div class="section-title" style="margin-top:0"><h2>Meja & QR code <span class="badge">${state.tables.length}</span></h2>
-      <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn ghost" id="print">${icon("printer", "sm")}Cetak semua QR</button><button class="btn" id="addT">${icon("plus", "sm")}Tambah meja</button></div></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn ghost" id="print">${icon("printer", "sm")}Cetak semua</button><button class="btn ghost" id="printSel" disabled>${icon("printer", "sm")}<span id="selN">Cetak terpilih</span></button><button class="btn" id="addT">${icon("plus", "sm")}Tambah meja</button></div></div>
     <div class="link-box">${icon("qr", "sm")}<span>QR mengarah ke <b>${esc(location.origin)}/customer/?qr=…</b>. Kalau halaman customer di-hosting di domain lain, buka panel ini dari domain tersebut sebelum mencetak QR.</span></div>
     <div class="meja-grid" id="mg" style="margin-top:14px"></div>`;
   $("#addT").addEventListener("click", tableModal);
+  selMeja = new Set();
   $("#print").addEventListener("click", printAll);
+  $("#printSel").addEventListener("click", () => printTables(state.tables.filter((t) => selMeja.has(t.id))));
   const mg = $("#mg");
   if (!state.tables.length) { mg.innerHTML = `<div class="state" style="grid-column:1/-1">${icon("table")}<h3>Belum ada meja</h3></div>`; return; }
   mg.innerHTML = state.tables.map((t) => `
-    <div class="card meja"><b>Meja ${esc(t.nomor_meja)}</b>
+    <div class="card meja"><label class="pick"><input type="checkbox" data-pick="${t.id}"> pilih</label><b>Meja ${esc(t.nomor_meja)}</b>
       <div class="qrbox">${qrSvg(customerUrl(t.qr_code))}</div>
       <code>${esc(t.qr_code)}</code>
-      <div style="display:flex;gap:6px"><button class="btn ghost sm" data-open="${esc(customerUrl(t.qr_code))}">Buka</button><button class="btn soft sm" data-printtable="${t.id}" aria-label="Cetak QR meja ${esc(t.nomor_meja)}" title="Cetak QR meja ini">${icon("printer", "sm")}</button><button class="btn danger-soft sm" data-deltable="${t.id}" aria-label="Hapus meja ${esc(t.nomor_meja)}">${icon("trash", "sm")}</button></div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:center"><button class="btn ghost sm" data-open="${esc(customerUrl(t.qr_code))}">Buka</button><button class="btn soft sm" data-printtable="${t.id}" aria-label="Cetak QR meja ${esc(t.nomor_meja)}" title="Cetak QR meja ini">${icon("printer", "sm")}</button><button class="btn ghost sm" data-edittable="${t.id}" title="Ubah nomor meja" aria-label="Ubah nomor meja">${icon("pencil", "sm")}</button><button class="btn ghost sm" data-regen="${t.id}" title="Buat ulang QR" aria-label="Buat ulang QR">${icon("refresh", "sm")}</button><button class="btn danger-soft sm" data-deltable="${t.id}" aria-label="Hapus meja ${esc(t.nomor_meja)}">${icon("trash", "sm")}</button></div>
     </div>`).join("");
 }
 
@@ -487,7 +508,7 @@ async function viewAdmin() {
       <div class="field"><label for="adP">Password ${d.username ? "baru (kosongkan jika tidak diganti)" : "(min. 6 karakter)"}</label><input class="input" id="adP" type="password" autocomplete="new-password"></div>
       <div class="label" style="margin:12px 0 6px">Hak akses</div>
       ${d.semua.map((k) => `<label style="display:flex;align-items:center;gap:10px;padding:6px 0"><input type="checkbox" data-izin="${k}" ${d.izin.includes(k) ? "checked" : ""}> ${esc(IZIN_LABEL[k] || k)}</label>`).join("")}
-      <p class="hint" style="margin:10px 0 0">Selalu khusus developer (tidak bisa diberikan): reset akun kasir, hapus kantin, dan kelola akun admin. Dengan begitu admin tidak bisa masuk ke akun kantin mana pun.</p>
+      <p class="hint" style="margin:10px 0 0">Selalu khusus admin utama (tidak bisa diberikan): reset akun kasir, hapus kantin, dan kelola akun admin. Dengan begitu admin tidak bisa masuk ke akun kantin mana pun.</p>
       <button class="btn block" id="adGo" style="margin-top:12px">${d.username ? "Simpan" : "Buat akun admin"}</button>
     </div>`;
   const boxes = Array.from($$("[data-izin]"));
@@ -504,4 +525,155 @@ async function viewAdmin() {
       toast("Akun admin disimpan"); viewAdmin();
     } catch (e) { fail(e, "Gagal menyimpan"); }
   });
+}
+
+
+// ====================== TAMBAHAN ======================
+let selMeja = new Set();
+
+// Konfirmasi hapus dengan mengetik nama (mencegah salah pencet)
+function confirmType(nama) {
+  return new Promise((resolve) => {
+    const s = openSheet(`
+      <div class="sheet-head"><div><h3>Hapus "${esc(nama)}"?</h3><p>Semua menu, akun kasir, dan riwayat pesanan kantin ini ikut terhapus permanen. Ketik nama kantin untuk memastikan.</p></div></div>
+      <div class="field"><input class="input" id="ct" placeholder="${esc(nama)}" autocomplete="off"></div>
+      <div class="sheet-actions"><button class="btn ghost" data-act="no">Batal</button><button class="btn danger" data-act="yes" disabled>Hapus permanen</button></div>`);
+    const yes = $('[data-act="yes"]', s.el), inp = $("#ct", s.el);
+    let done = false;
+    const finish = (v) => { if (done) return; done = true; s.close(); resolve(v); };
+    inp.addEventListener("input", () => { yes.disabled = inp.value.trim().toLowerCase() !== nama.trim().toLowerCase(); });
+    yes.addEventListener("click", () => finish(inp.value.trim()));
+    $('[data-act="no"]', s.el).addEventListener("click", () => finish(null));
+    s.overlay.addEventListener("mousedown", (e) => { if (e.target === s.overlay) finish(null); });
+    inp.focus();
+  });
+}
+
+// Ganti password akun sendiri
+function passwordModal() {
+  const s = openSheet(`
+    <div class="sheet-head"><div><h3>Ganti password</h3><p>Minimal 8 karakter. Gunakan password yang tidak dipakai di tempat lain.</p></div>
+      <button class="btn ghost icon sm" data-close aria-label="Tutup">${icon("x")}</button></div>
+    <div class="field"><label for="pl">Password lama</label><input class="input" id="pl" type="password" autocomplete="current-password"></div>
+    <div class="field"><label for="pb">Password baru</label><input class="input" id="pb" type="password" autocomplete="new-password"></div>
+    <div class="field"><label for="pu">Ulangi password baru</label><input class="input" id="pu" type="password" autocomplete="new-password"></div>
+    <div class="form-error" id="err" hidden></div>
+    <div class="sheet-actions"><button class="btn ghost" data-close>Batal</button><button class="btn" id="save">Simpan</button></div>`);
+  $("#save", s.el).addEventListener("click", async (ev) => {
+    const err = $("#err", s.el); err.hidden = true;
+    const lama = $("#pl", s.el).value, baru = $("#pb", s.el).value;
+    if (baru.length < 8) { err.textContent = "Password baru minimal 8 karakter."; err.hidden = false; return; }
+    if (baru !== $("#pu", s.el).value) { err.textContent = "Pengulangan password tidak sama."; err.hidden = false; return; }
+    const b = ev.currentTarget; b.disabled = true; b.textContent = "Menyimpan...";
+    try { await call("/api/dev/password", { method: "PUT", body: { lama, baru } }); s.close(); toast("Password berhasil diganti", "success"); }
+    catch (ex) { if (ex.status === 401) return fail(ex); err.textContent = ex.message; err.hidden = false; b.disabled = false; b.textContent = "Simpan"; }
+  });
+}
+
+// Grafik penjualan di dashboard
+async function loadGrafik() {
+  const el = $("#grafik"); if (!el) return;
+  const hari = state.hari || 7;
+  try {
+    const g = await call(`/api/dev/grafik?hari=${hari}`);
+    const max = Math.max(1, ...g.harian.map((h) => h.total));
+    const fmt = (d) => new Date(d + "T00:00:00").toLocaleDateString("id-ID", { day: "2-digit", month: "short" });
+    el.innerHTML = `
+      <div class="section-title"><h2>Penjualan</h2>
+        <div class="chips">${[7, 30].map((n) => `<button class="chip ${hari === n ? "active" : ""}" data-gh="${n}">${n} hari</button>`).join("")}</div></div>
+      <div class="gr-wrap">
+        <div class="card bars">${g.harian.length ? g.harian.map((h) => `
+          <div class="bar-row"><span>${fmt(h.tanggal)}</span><div class="bar-track"><div class="bar-fill" style="width:${Math.max(3, (h.total / max) * 100)}%"></div></div><b>${rupiah(h.total)}</b></div>`).join("") : `<div class="state" style="padding:20px">Belum ada penjualan lunas.</div>`}</div>
+        <div class="card top-list">
+          <div class="label" style="padding:10px 0 2px">Kantin terlaris</div>
+          ${g.terlaris.length ? g.terlaris.map((k, i) => `<div class="r"><span class="n">${i + 1}</span><span class="t">${esc(k.nama_kantin)}</span><span class="q">${rupiah(k.total)}<br>${k.jumlah_order} order</span></div>`).join("") : `<div class="state" style="padding:16px">Belum ada data.</div>`}
+          ${g.jam_ramai.length ? `<div class="hint" style="padding:8px 0 10px">Jam ramai: ${g.jam_ramai.map((j) => `${String(j.jam).padStart(2, "0")}.00`).join(", ")}</div>` : ""}
+        </div>
+      </div>`;
+  } catch (e) { el.innerHTML = ""; }
+}
+document.addEventListener("click", (e) => {
+  const b = e.target.closest("[data-gh]"); if (!b) return;
+  state.hari = Number(b.dataset.gh); loadGrafik();
+});
+
+// Setoran QRIS ke kantin
+document.addEventListener("click", async (e) => {
+  const b = e.target.closest("[data-setor]"); if (!b) return;
+  const k = state.rekapData?.kantin.find((x) => x.tenant_id === Number(b.dataset.setor));
+  if (!k || !k.sisa_qris) return;
+  const R = state.rekap;
+  if (!(await confirmDialog({ title: `Tandai setoran ${k.nama_kantin}?`, message: `Setoran QRIS ${rupiah(k.sisa_qris)} untuk periode ${R.dari} s/d ${R.sampai} dicatat sudah dibayarkan ke kantin.`, okText: "Ya, sudah disetor" }))) return;
+  b.disabled = true;
+  try {
+    await call("/api/dev/setoran", { method: "POST", body: { tenant_id: k.tenant_id, dari: R.dari, sampai: R.sampai, nominal: k.sisa_qris } });
+    toast("Setoran dicatat", "success"); viewRekap();
+  } catch (err) { fail(err, "Gagal mencatat setoran"); b.disabled = false; }
+});
+
+// Cetak rekap pembayaran
+function printRekap(d) {
+  if (!d) return;
+  let pa = document.getElementById("printArea");
+  if (!pa) { pa = document.createElement("div"); pa.className = "print-area"; pa.id = "printArea"; document.body.appendChild(pa); }
+  const t = d.total;
+  const rows = d.kantin.map((k) => `<tr><td>${esc(k.nama_kantin)}</td><td class="n">${rupiah(k.qris_total)}</td><td class="n">${rupiah(k.cash_total)}</td><td class="n">${rupiah(k.total)}</td><td class="n">${rupiah(k.sisa_qris || 0)}</td><td class="par"></td></tr>`).join("");
+  pa.innerHTML = `<div class="print-doc">
+    <h2>Rekap Pembayaran</h2>
+    <p>Food Court UNUSIDA &middot; Periode ${esc(d.dari)} s/d ${esc(d.sampai)}</p>
+    <table><thead><tr><th>Kantin</th><th class="n">QRIS</th><th class="n">Cash</th><th class="n">Total</th><th class="n">Sisa setor QRIS</th><th>Paraf</th></tr></thead>
+    <tbody>${rows}</tbody>
+    <tfoot><tr><td>TOTAL</td><td class="n">${rupiah(t.qris_total)}</td><td class="n">${rupiah(t.cash_total)}</td><td class="n">${rupiah(t.total)}</td><td class="n">${rupiah(t.sisa_qris || 0)}</td><td></td></tr></tfoot></table>
+    <small>Dicetak ${new Date().toLocaleString("id-ID")}</small></div>`;
+  setTimeout(() => window.print(), 80);
+}
+
+// Meja: pilih, ubah nomor, buat ulang QR
+document.addEventListener("change", (e) => {
+  const c = e.target.closest("[data-pick]"); if (!c) return;
+  const id = Number(c.dataset.pick);
+  if (c.checked) selMeja.add(id); else selMeja.delete(id);
+  const b = $("#printSel"); if (!b) return;
+  b.disabled = selMeja.size === 0;
+  $("#selN").textContent = selMeja.size ? `Cetak terpilih (${selMeja.size})` : "Cetak terpilih";
+});
+document.addEventListener("click", async (e) => {
+  const ed = e.target.closest("[data-edittable]");
+  if (ed) {
+    const t = state.tables.find((x) => x.id === Number(ed.dataset.edittable)); if (!t) return;
+    const s = openSheet(`
+      <div class="sheet-head"><div><h3>Ubah nomor meja</h3><p>QR tidak berubah, hanya nama/nomor meja.</p></div>
+        <button class="btn ghost icon sm" data-close aria-label="Tutup">${icon("x")}</button></div>
+      <div class="field"><label for="nm">Nomor / nama meja</label><input class="input" id="nm" maxlength="10" value="${esc(t.nomor_meja)}"></div>
+      <div class="form-error" id="err" hidden></div>
+      <div class="sheet-actions"><button class="btn ghost" data-close>Batal</button><button class="btn" id="save">Simpan</button></div>`);
+    $("#save", s.el).addEventListener("click", async (ev) => {
+      const err = $("#err", s.el); err.hidden = true;
+      const b = ev.currentTarget; b.disabled = true;
+      try { await call(`/api/dev/tables/${t.id}`, { method: "PATCH", body: { nomor_meja: $("#nm", s.el).value.trim() } }); s.close(); toast("Nomor meja diperbarui", "success"); viewMeja(); }
+      catch (ex) { if (ex.status === 401) return fail(ex); err.textContent = ex.message; err.hidden = false; b.disabled = false; }
+    });
+    return;
+  }
+  const rg = e.target.closest("[data-regen]");
+  if (rg) {
+    const t = state.tables.find((x) => x.id === Number(rg.dataset.regen)); if (!t) return;
+    if (!(await confirmDialog({ title: `Buat ulang QR meja ${t.nomor_meja}?`, message: "QR yang sudah tercetak di meja ini langsung tidak bisa dipakai lagi. Kamu harus mencetak QR baru.", okText: "Buat ulang", danger: true }))) return;
+    try { await call(`/api/dev/tables/${t.id}/qr`, { method: "POST" }); toast("QR dibuat ulang, cetak QR barunya", "success"); viewMeja(); }
+    catch (err) { fail(err, "Gagal membuat ulang QR"); }
+  }
+});
+
+// Tab: log aktivitas (khusus dev)
+async function viewLog() {
+  loading();
+  let rows;
+  try { rows = await call("/api/dev/audit?limit=150"); }
+  catch (e) { fail(e); return (content().innerHTML = `<div class="state error">${icon("alert")}<h3>Gagal memuat log</h3><p>${esc(e.message)}</p></div>`); }
+  content().innerHTML = `
+    <div class="section-title" style="margin-top:0"><h2>Log aktivitas</h2><span class="hint">150 aksi terakhir</span></div>
+    <div class="card rk-card"><div class="rk-scroll"><table class="rk-table">
+      <thead><tr><th>Waktu</th><th>Akun</th><th>Aktivitas</th></tr></thead>
+      <tbody>${rows.length ? rows.map((r) => `<tr style="cursor:default"><td>${new Date(r.created_at).toLocaleString("id-ID", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}</td><td>${esc(r.username || "-")}<small>${esc(r.role || "")}</small></td><td>${esc(r.aksi)}</td></tr>`).join("") : `<tr><td colspan="3" class="state">Belum ada aktivitas tercatat.</td></tr>`}</tbody>
+    </table></div></div>`;
 }

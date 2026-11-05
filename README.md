@@ -11,7 +11,7 @@ Tiga tampilan, satu server:
 |---|---|---|
 | `/customer/?qr=<kode-meja>` | Pelanggan (dari scan QR meja) | tanpa login |
 | `/kantin/` | Kasir / staf kantin | akun kasir per kantin |
-| `/dev/` | Developer / admin food court | akun dev |
+| `/dev/` | Admin food court | akun admin |
 
 ## Menjalankan
 
@@ -25,7 +25,7 @@ Server otomatis **membuat tabel & data awal**, dan **meng-upgrade database lama*
 (menambah kolom pembayaran, meng-hash password plain-text, dll.). Tidak perlu menjalankan SQL manual.
 Setelah jalan, buka `http://localhost:3000/dev/`.
 
-Login awal (password semua: `password123` — **segera ganti** lewat Panel Dev → Akun):
+Login awal (password semua: `password123` — **segera ganti** lewat Panel Admin → Akun):
 `admin_dev` (dev), `kantin_bunda_iin`, `kasir_joko`, `kasir_padang`, `kasir_mieayam`,
 `kasir_sehat`, `kasir_soto`, `kasir_jajanan`, `kasir_minuman`.
 
@@ -36,7 +36,7 @@ MySQL lokal (bukan Aiven): isi `DB_SSL=false` di `.env`.
 - Pelanggan bisa memesan dari beberapa kantin sekaligus dan membayar **satu kali** dengan **satu QR** bernominal gabungan.
 - Begitu Mutasiku menandai pembayaran PAID, semua pesanan ikut **lunas otomatis** dan kasir tiap kantin mendengar nada "bayar masuk".
 - QRIS tidak bisa ditandai lunas manual. Cash dikonfirmasi kasir tiap kantin.
-- Uang QRIS masuk ke **satu akun GoPay Merchant** milik pengelola. Hasil per kantin per metode bayar ada di **Panel Dev, tab Rekap** (bisa diunduh CSV) sebagai dasar penyetoran ke kantin.
+- Uang QRIS masuk ke **satu akun GoPay Merchant** milik pengelola. Hasil per kantin per metode bayar ada di **Panel Admin, tab Rekap** (bisa diunduh CSV) sebagai dasar penyetoran ke kantin.
 - Pengaturan lengkap (variabel `.env`, webhook, mode simulasi `MUTASIKU_MOCK=true`) ada di **PANDUAN.md bagian E**.
 - **Penting:** isi `MUTASIKU_API_KEY`, `MUTASIKU_WALLET_ACCOUNT_ID`, dan daftarkan webhook (lihat PANDUAN bagian E).
 
@@ -47,7 +47,7 @@ bisa ke printer thermal 58 mm atau 80 mm (ubah dengan tombol "Nota 58/80 mm" di 
 
 ## QR meja
 
-Panel Dev → tab **Meja & QR**: tambah meja (satu / rentang), lihat QR, dan **Cetak semua QR**.
+Panel Admin → tab **Meja & QR**: tambah meja (satu / rentang), lihat QR, dan **Cetak semua QR**.
 QR mengarah ke alamat tempat panel dibuka, jadi buka panel dari domain/IP final sebelum mencetak.
 
 ## Deploy (Render + opsional Vercel)

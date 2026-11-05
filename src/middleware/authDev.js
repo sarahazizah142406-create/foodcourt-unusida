@@ -19,7 +19,7 @@ export async function authDev(req, res, next) {
   try {
     const decoded = jwt.verify(authHeader.split(" ")[1], process.env.JWT_SECRET);
     if (decoded.role !== "dev" && decoded.role !== "admin") {
-      return res.status(403).json({ message: "Akses ditolak, khusus akun developer / admin" });
+      return res.status(403).json({ message: "Akses ditolak, khusus akun admin" });
     }
     req.userId = decoded.userId;
     req.role = decoded.role;
@@ -41,4 +41,4 @@ export const izin = (nama) => (req, res, next) =>
     : res.status(403).json({ message: "Akun ini tidak punya akses ke fitur tersebut" });
 
 export const hanyaDev = (req, res, next) =>
-  req.role === "dev" ? next() : res.status(403).json({ message: "Khusus akun developer" });
+  req.role === "dev" ? next() : res.status(403).json({ message: "Khusus admin utama" });

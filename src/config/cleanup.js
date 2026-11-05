@@ -15,8 +15,13 @@ export async function cleanupStaleOrders() {
   const [b] = await pool.query(
     "UPDATE order_tenants SET disembunyikan_kantin = 1 WHERE DATE(created_at) < CURDATE() AND disembunyikan_kantin = 0"
   );
-  if (a.affectedRows || b.affectedRows) {
-    console.log(`🧹 Pesanan kemarin: ${a.affectedRows} dibatalkan otomatis, ${b.affectedRows} disembunyikan`);
+  const [c] = await pool.query(
+    `UPDATE orders
+     SET payment_ref = NULL, qris_string = NULL, qris_expires_ms = NULL
+     WHERE DATE(created_at) < CURDATE() AND status_bayar = 'pending'`
+  );
+  if (a.affectedRows || b.affectedRows || c.affectedRows) {
+    console.log(`🧹 Pesanan kemarin: ${a.affectedRows} dibatalkan otomatis, ${b.affectedRows} disembunyikan, ${c.affectedRows} pesanan kedaluwarsa dibersihkan`);
   }
 }
 

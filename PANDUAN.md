@@ -21,7 +21,7 @@
 - Tab **Menu**: tambah/ubah menu, foto, harga, tandai habis. Tombol **Buka/Tutup** di header.
 - Tab **Laporan** (omzet, menu terlaris) dan **QRIS** (QR milik kantin).
 
-### Developer (`/dev/`)
+### Admin (`/dev/`)
 - **Kantin & QRIS**: tambah kantin + akun kasir, **upload foto kantin asli**, pasang QRIS tiap kantin.
 - **Meja & QR**: tambah meja, **Cetak semua QR**, tempel di meja. Cetak setelah panel dibuka dari domain final.
 - **Logo**: simpan file di `frontend/assets/logo.png`.
@@ -53,7 +53,7 @@ Daftar cloudinary.com (gratis) → ambil Cloud name, API key, API secret. Tanpa 
 5. Paket Free Render bisa "tidur" saat sepi (permintaan pertama ±1 menit). Untuk dipakai harian, naik ke paket berbayar atau ping `/api/health` berkala (mis. UptimeRobot).
 
 ### 4. Domain sendiri (opsional)
-Render → Settings → Custom Domains → tambahkan domain, atur CNAME di penyedia domain. HTTPS otomatis. Setelah domain final, **cetak ulang QR meja** dari panel Dev.
+Render → Settings → Custom Domains → tambahkan domain, atur CNAME di penyedia domain. HTTPS otomatis. Setelah domain final, **cetak ulang QR meja** dari panel Admin.
 
 ### 5. Frontend terpisah di Vercel (opsional)
 Tidak wajib. Jika dipakai: Root Directory = `frontend`, ubah `PRODUCTION_API` di `frontend/config.js` ke URL Render, dan isi `CORS_ORIGIN` di Render dengan domain Vercel.
@@ -86,13 +86,13 @@ Uang QRIS masuk ke **satu akun GoPay Merchant** milik pengelola. Mutasiku membua
 **Catatan penting**
 - Mutasiku membaca akun lewat login atas namamu (bukan API resmi GoPay). Cek syarat layanan GoPay Merchant dan Mutasiku, pakai akun khusus kantin, dan siapkan Cash sebagai cadangan.
 - Ada biaya per transaksi di Mutasiku (cek halaman harga mereka; informasi di situsnya belum seragam, konfirmasi ke support).
-- Rincian setoran per kantin ada di panel Dev, tab **Rekap** (bisa diunduh CSV).
+- Rincian setoran per kantin ada di panel Admin, tab **Rekap** (bisa diunduh CSV).
 - Jika variabel di atas kosong, pilihan QRIS nonaktif dan pelanggan hanya bisa Cash.
 
 ## F. Masalah umum
 - **Gambar gagal upload**: kecilkan gambar atau pasang Cloudinary.
 - **Tidak bisa terhubung ke server**: server Render sedang "tidur", tunggu ±1 menit.
-- **QR meja salah alamat**: buka panel Dev dari domain final lalu cetak ulang.
+- **QR meja salah alamat**: buka panel Admin dari domain final lalu cetak ulang.
 
 ## F. Notifikasi
 

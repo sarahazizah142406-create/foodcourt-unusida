@@ -42,6 +42,12 @@ main { padding: 20px 0 48px; }
 .o-items .it { display: flex; gap: 10px; }
 .o-items .it b { min-width: 30px; color: var(--brand-ink); }
 .o-note { margin-top: 12px; background: var(--warn-soft); color: var(--warn); padding: 8px 12px; border-radius: 10px; font-size: 13.5px; font-weight: 500; display: flex; gap: 8px; }
+.o-note.spicy { background: #FFF1F2; color: #BE123C; border: 1px solid #FECDD3; font-weight: 600; }
+.o-note.spicy .ico { color: #E11D48; }
+@media (prefers-color-scheme: dark) {
+  .o-note.spicy { background: rgba(225, 29, 72, 0.16); color: #FDA4AF; border-color: rgba(225, 29, 72, 0.35); }
+  .o-note.spicy .ico { color: #FB7185; }
+}
 .o-total { display: flex; justify-content: space-between; margin-top: 12px; font-weight: 700; }
 .o-pay { margin-top: 12px; padding: 10px 12px; border-radius: 12px; background: var(--warn-soft); display: grid; gap: 8px; }
 .o-pay.paid { background: var(--brand-soft); color: var(--brand-ink); font-weight: 600; display: flex; align-items: center; gap: 8px; }
@@ -107,7 +113,6 @@ main { padding: 20px 0 48px; }
 .sound-btn[aria-pressed="false"] { opacity: .5; }
 
 .tabbar.dock .tab { font-size: 11.5px; }
-@media (min-width: 900px) { .tabbar.dock { top: 62px; z-index: 29; background: var(--bg); } }
 @media (max-width: 899px) { main { padding-bottom: 24px; } .toasts { bottom: 100px; } }
 
 @media (prefers-color-scheme: dark) {

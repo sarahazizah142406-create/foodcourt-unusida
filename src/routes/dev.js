@@ -3,10 +3,12 @@ import rateLimit from "express-rate-limit";
 import { authDev, izin, hanyaDev } from "../middleware/authDev.js";
 import { parseImages } from "../middleware/upload.js";
 import { wrap } from "../utils.js";
+import { auditMiddleware } from "../config/audit.js";
 import {
   loginDev, getMetrics, getAllTenants, createTenant, updateTenant,
   toggleTenantStatus, setKasirAccount, deleteTenant, listTables, createTables, deleteTable,
-  getRekap, getRekapDetail, getAdminAccount, setAdminAccount, me
+  getRekap, getRekapDetail, getAdminAccount, setAdminAccount, me,
+  gantiPassword, getGrafik, listAudit, createSetoran, updateTable, regenerateQr
 } from "../controllers/devController.js";
 
 const router = Router();
@@ -22,6 +24,7 @@ const loginLimiter = rateLimit({
 router.post("/login", loginLimiter, wrap(loginDev));
 
 router.use(authDev);
+router.use(auditMiddleware);
 router.get("/me", wrap(me));
 router.get("/metrics", izin("kantin_lihat"), wrap(getMetrics));
 router.get("/tenants", izin("kantin_lihat"), wrap(getAllTenants));
@@ -37,5 +40,12 @@ router.put("/admin", hanyaDev, wrap(setAdminAccount));
 router.get("/tables", izin("meja"), wrap(listTables));
 router.post("/tables", izin("meja"), wrap(createTables));
 router.delete("/tables/:id", izin("meja"), wrap(deleteTable));
+
+router.put("/password", wrap(gantiPassword));
+router.get("/grafik", izin("kantin_lihat"), wrap(getGrafik));
+router.get("/audit", hanyaDev, wrap(listAudit));
+router.post("/setoran", izin("rekap"), wrap(createSetoran));
+router.patch("/tables/:id", izin("meja"), wrap(updateTable));
+router.post("/tables/:id/qr", izin("meja"), wrap(regenerateQr));
 
 export default router;

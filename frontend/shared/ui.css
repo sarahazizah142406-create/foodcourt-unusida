@@ -307,16 +307,6 @@ a { color: var(--brand-ink); }
 body.has-tabbar { padding-bottom: calc(88px + env(safe-area-inset-bottom)); }
 
 @media (min-width: 900px) {
-  body.has-tabbar { padding-bottom: 28px; }
-  .tabbar {
-    position: sticky; top: 0; left: 0; right: 0; bottom: auto; max-width: none;
-    border-radius: 0; border-width: 0 0 1px; box-shadow: none;
-    padding: 5px max(16px, calc((100% - 1180px) / 2 + 16px));
-    justify-content: flex-start; gap: 4px;
-  }
-  .tabbar .tab, .tabbar a { flex: none; flex-direction: row; gap: 7px; font-size: 13.5px; padding: 8px 14px; border-radius: 10px; }
-  .tabbar .count { position: static; }
-  .tabbar.center { justify-content: center; }
   .hero { border-radius: 0 0 32px 32px; }
 }
 
@@ -355,3 +345,7 @@ body.has-tabbar { padding-bottom: calc(88px + env(safe-area-inset-bottom)); }
 .tabbar { box-shadow: 0 8px 28px rgba(19,68,48,.16); }
 .tabbar .tab.active, .tabbar a.active { box-shadow: inset 0 0 0 1px var(--brand-line); }
 ::selection { background: var(--accent-soft); color: var(--text); }
+
+
+/* Tabbar tetap di bawah (sama seperti mobile) di desktop */
+.tabbar .count { position: absolute; }

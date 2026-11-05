@@ -1,6 +1,6 @@
 /* ============================================================
-   Dashboard Kantin — pesanan masuk realtime, cetak nota, menu, laporan
-   ============================================================ */
+ Dashboard Kantin — pesanan masuk realtime, cetak nota, menu, laporan
+ ============================================================ */
 const { api, esc, rupiah, jam, tanggal, icon, toast, safeImg, store, openSheet, confirmDialog, compressImage, $, $$ } = FC;
 
 const STEPS = ["diterima", "diproses", "siap", "diambil"];
@@ -15,6 +15,7 @@ const state = {
   me: null,
   tab: "pesanan",
   filter: "aktif",
+  orderQuery: "",
   orders: [],
   menus: [],
   menuQuery: "",
@@ -219,9 +220,11 @@ async function viewPesanan() {
   content().innerHTML = `<div id="stats" class="stats">${Array(4).fill('<div class="skeleton" style="height:84px"></div>').join("")}</div>
     <div class="section-title"><h2>Pesanan</h2><button class="btn ghost sm" id="refresh">${icon("refresh", "sm")}Muat ulang</button></div>
     <div class="chips" id="chips"></div>
+    <div class="search" style="margin:10px 0 2px">${icon("search")}<input class="input" id="oq" placeholder="Cari antrian (#001) atau meja..." value="${esc(state.orderQuery)}"></div>
     <div id="orders" style="margin-top:14px"></div>`;
   $("#refresh").addEventListener("click", () => loadOrders());
   $("#chips").addEventListener("click", (e) => { const c = e.target.closest("[data-f]"); if (c) { state.filter = c.dataset.f; drawOrders(); } });
+  $("#oq").addEventListener("input", (e) => { state.orderQuery = e.target.value; drawOrders(); });
   loadStats();
   await loadOrders();
 }
@@ -248,14 +251,35 @@ async function loadOrders(silent = false) {
 }
 
 function filtered() {
+  let list;
   const act = state.orders.filter(isAktif).sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
   const done = state.orders.filter((o) => o.status_order === "diambil");
   const batal = state.orders.filter(isBatal);
-  if (state.filter === "aktif") return act;
-  if (state.filter === "belum") return state.orders.filter((o) => o.status_bayar === "pending" && !isBatal(o));
-  if (state.filter === "selesai") return done;
-  if (state.filter === "batal") return batal;
-  return [...act, ...done, ...batal];
+  if (state.filter === "aktif") list = act;
+  else if (state.filter === "belum") list = state.orders.filter((o) => o.status_bayar === "pending" && !isBatal(o));
+  else if (state.filter === "selesai") list = done;
+  else if (state.filter === "batal") list = batal;
+  else list = [...act, ...done, ...batal];
+
+  const q = String(state.orderQuery || "").trim().toLowerCase();
+  if (!q) return list;
+  return list.filter((o) =>
+    String(o.nomor_antrian).toLowerCase().includes(q) ||
+    String(o.nomor_meja).toLowerCase().includes(q) ||
+    `#${o.nomor_antrian}`.toLowerCase().includes(q) ||
+    `meja ${o.nomor_meja}`.toLowerCase().includes(q)
+  );
+}
+
+function timerBadge(o) {
+  if (o.status_order === "diambil" || o.status_order === "dibatalkan") return "";
+  const diffMs = Date.now() - new Date(o.created_at).getTime();
+  const mins = Math.max(0, Math.floor(diffMs / 60000));
+  const txt = mins < 1 ? "Baru saja" : `${mins} mnt`;
+  let cls = "badge";
+  if (mins >= 20) cls = "badge red";
+  else if (mins >= 10) cls = "badge amber";
+  return `<span class="${cls}" title="Waktu tunggu: ${mins} menit">${icon("clock", "sm")}${txt}</span>`;
 }
 
 function drawOrders() {
@@ -273,7 +297,7 @@ function drawOrders() {
     + (state.orders.some((o) => !isAktif(o)) ? `<button class="chip" data-bersih title="Hapus semua pesanan selesai & dibatalkan dari tampilan">${icon("trash", "sm")} Bersihkan selesai</button>` : "");
   const list = filtered();
   if (!list.length) {
-    el.innerHTML = `<div class="state">${icon("inbox")}<h3>${state.filter === "aktif" ? "Belum ada pesanan aktif" : "Tidak ada pesanan"}</h3></div>`;
+    el.innerHTML = `<div class="state">${icon("inbox")}<h3>${state.orderQuery ? "Pesanan tidak ditemukan" : (state.filter === "aktif" ? "Belum ada pesanan aktif" : "Tidak ada pesanan")}</h3>${state.orderQuery ? `<p>Coba cari nomor antrian atau meja lain.</p>` : ""}</div>`;
     return;
   }
   el.innerHTML = `<div class="orders">${list.map(orderCard).join("")}</div>`;
@@ -297,12 +321,15 @@ function orderCard(o) {
   <article class="card order ${state.freshIds.has(o.order_tenant_id) && idx === 0 ? "new" : ""}" data-id="${o.order_tenant_id}">
     <div class="o-head">
       <div><div class="o-q"><small>#</small>${esc(o.nomor_antrian)}</div>
-        <div class="o-meta"><span>${icon("table", "sm")} <b>Meja ${esc(o.nomor_meja)}</b></span><span>${jam(o.created_at)}</span><span class="badge ${isQris ? "blue" : ""}">${isQris ? "QRIS" : "Cash"}</span></div></div>
+        <div class="o-meta"><span>${icon("table", "sm")} <b>Meja ${esc(o.nomor_meja)}</b></span><span>${jam(o.created_at)}</span>${timerBadge(o)}<span class="badge ${isQris ? "blue" : ""}">${isQris ? "QRIS" : "Cash"}</span></div></div>
       <span class="badge s-${o.status_order}">${STEP_LABEL[o.status_order]}</span>
     </div>
     <div class="o-items">${items}</div>
     <div class="o-note" style="font-weight:700">${icon(o.tipe_makan === "takeaway" ? "bag" : "utensils", "sm")}<span>${o.tipe_makan === "takeaway" ? "BUNGKUS" : "Makan di tempat"}</span></div>
-    ${o.catatan ? `<div class="o-note">${icon("note", "sm")}<span>${esc(o.catatan)}</span></div>` : ""}
+    ${o.catatan ? (() => {
+      const isSpicy = /(?:pedas|level|lv|cabe|cabai|mercon|sambal|seblak|geprek)/i.test(o.catatan);
+      return `<div class="o-note ${isSpicy ? "spicy" : ""}">${icon(isSpicy ? "flame" : "note", "sm")}<span><b>Catatan:</b> ${esc(o.catatan)}</span></div>`;
+    })() : ""}
     <div class="o-total"><span>Total</span><span>${rupiah(o.subtotal)}</span></div>
     ${pending ? (isQris
       ? `<div class="o-pay"><div><span class="badge amber">Menunggu pembayaran QRIS</span></div>
@@ -315,6 +342,7 @@ function orderCard(o) {
     <div class="pills">${STEPS.map((s, i) => `<span class="pill ${i <= idx ? "on" : ""}"></span>`).join("")}</div>
     <div class="o-actions">
       ${idx < 3 ? (isQris && pending && idx === 0 ? `<button class="btn" disabled title="Menunggu pembayaran QRIS">Menunggu bayar...</button>` : `<button class="btn" data-next="${o.order_tenant_id}" data-to="${STEPS[idx + 1]}">${NEXT_LABEL[o.status_order]}</button>`) : `<button class="btn ghost" disabled>Selesai</button>`}
+      ${o.status_order === "siap" ? `<button class="btn soft" data-buzz="${o.order_tenant_id}" title="Kirim panggilan ke HP pelanggan Meja ${esc(o.nomor_meja)}">${icon("bell", "sm")}Panggil</button>` : ""}
       <button class="btn ghost icon" data-print="${o.order_tenant_id}" aria-label="Cetak nota" title="Cetak nota">${icon("receipt")}</button>
       ${idx > 0 ? `<button class="btn ghost icon" data-prev="${o.order_tenant_id}" data-to="${STEPS[idx - 1]}" aria-label="Kembalikan ke status sebelumnya" title="Kembalikan status">${icon("chevron-left")}</button>` : ""}
     </div>
@@ -388,8 +416,22 @@ document.addEventListener("click", async (e) => {
   if (nxt) {
     const id = nxt.dataset.next || nxt.dataset.prev;
     const order = state.orders.find((o) => o.order_tenant_id === Number(id));
-    if (nxt.dataset.to === "diambil" && order?.status_bayar === "pending" &&
-        !(await confirmDialog({ title: "Pesanan belum dibayar", message: `Pesanan #${order.nomor_antrian} belum ditandai lunas. Tetap tandai sudah diambil?`, okText: "Tetap lanjut" }))) return;
+    if (nxt.dataset.to === "diambil" && order?.status_bayar === "pending") {
+      if (order.metode_bayar === "cash") {
+        const bayarDulu = await confirmDialog({
+          title: `Pesanan #${order.nomor_antrian} belum lunas`,
+          message: `Pelanggan memilih bayar tunai (${rupiah(order.subtotal)}). Tandai pembayaran tunai lunas sekaligus?`,
+          okText: "Lunas & Selesai",
+          cancelText: "Batal"
+        });
+        if (!bayarDulu) return;
+        try {
+          await tokenCall(`/api/kasir/orders/${id}/bayar`, { method: "PATCH" });
+        } catch { /* jika sudah lunas atau ada kendala, tetap lanjut */ }
+      } else {
+        if (!(await confirmDialog({ title: "Pesanan belum lunas", message: `Pesanan QRIS #${order.nomor_antrian} belum terkonfirmasi lunas dari gateway. Tetap tandai sudah diambil?`, okText: "Tetap lanjut", danger: true }))) return;
+      }
+    }
     nxt.disabled = true;
     try {
       await tokenCall(`/api/kasir/orders/${id}/status`, { method: "PATCH", body: { status_order: nxt.dataset.to } });
@@ -414,6 +456,23 @@ document.addEventListener("click", async (e) => {
     if (!(await confirmDialog({ title: `Bersihkan ${n} pesanan?`, message: "Semua pesanan selesai dan dibatalkan dihapus dari tampilan. Laporan pendapatan tidak berubah.", okText: "Bersihkan", danger: true }))) return;
     try { await tokenCall("/api/kasir/orders/bersihkan", { method: "POST" }); toast("Tampilan dibersihkan", "success"); await loadOrders(true); }
     catch (err) { fail(err, "Gagal membersihkan"); }
+    return;
+  }
+  const buzz = e.target.closest("[data-buzz]");
+  if (buzz) {
+    buzz.disabled = true;
+    const oldHtml = buzz.innerHTML;
+    buzz.textContent = "Memanggil...";
+    try {
+      await tokenCall(`/api/kasir/orders/${buzz.dataset.buzz}/panggil`, { method: "POST" });
+      toast("Panggilan terkirim ke HP pelanggan", "success");
+      buzz.innerHTML = `${icon("check", "sm")}Terpanggil`;
+      setTimeout(() => { buzz.disabled = false; buzz.innerHTML = oldHtml; }, 5000);
+    } catch (err) {
+      fail(err, "Gagal memanggil pelanggan");
+      buzz.disabled = false;
+      buzz.innerHTML = oldHtml;
+    }
     return;
   }
   const pr = e.target.closest("[data-print]");
@@ -447,8 +506,9 @@ function printNota(o) {
   const wkt = d.toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" });
   const isQris = o.metode_bayar === "qris";
   const lunas = o.status_bayar === "lunas";
-  const totalQty = o.items.reduce((a, i) => a + i.qty, 0);
-  const rows = o.items.map((i) => `
+  const items = Array.isArray(o.items) ? o.items : [];
+  const totalQty = items.reduce((a, i) => a + (i.qty || 0), 0);
+  const rows = items.map((i) => `
     <div class="r-item">
       <div class="r-name">${esc(i.nama_menu)}</div>
       <div class="r-calc"><span>${i.qty} x ${rupiah(i.harga_satuan)}</span><b>${rupiah(i.harga_satuan * i.qty)}</b></div>
@@ -544,7 +604,7 @@ function menuModal(menu = null) {
       <label class="dropzone" id="dz"><input type="file" id="file" accept="image/jpeg,image/png,image/webp">
         <div id="dzInner"></div></label>
       <button type="button" class="btn danger-soft sm" id="rmImg" hidden style="justify-self:start">${icon("trash", "sm")}Hapus foto</button></div>
-    <div class="field"><label for="nm">Nama menu</label><input class="input" id="nm" maxlength="100" placeholder="Contoh: Nasi Goreng Spesial" value="${esc(menu?.nama_menu || "")}"></div>
+    <div class="field"><label for="nm">Nama menu</label><input class="input" id="nm" maxlength="100" placeholder="Contoh: Ayam Geprek (Bisa Lv 1-5), Es Teh" value="${esc(menu?.nama_menu || "")}"></div>
     <div class="field"><label for="hg">Harga</label><div class="input-group"><span>Rp</span><input class="input" id="hg" type="number" inputmode="numeric" min="1" step="500" placeholder="15000" value="${menu?.harga || ""}"></div></div>
     <div class="form-error" id="err" hidden></div>
     <div class="sheet-actions"><button class="btn ghost" data-close>Batal</button><button class="btn" id="save">Simpan</button></div>`);

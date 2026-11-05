@@ -155,9 +155,29 @@ async function seedIfFresh() {
   }
 }
 
+async function ensureExtraTables() {
+  await run(`CREATE TABLE IF NOT EXISTS audit_log (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    user_id INT NULL,
+    role VARCHAR(10) NULL,
+    aksi VARCHAR(255) NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+  )`, "tabel audit_log siap");
+  await run(`CREATE TABLE IF NOT EXISTS setoran_qris (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    tenant_id INT NOT NULL,
+    dari DATE NOT NULL,
+    sampai DATE NOT NULL,
+    nominal INT NOT NULL,
+    user_id INT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+  )`, "tabel setoran_qris siap");
+}
+
 export async function migrate() {
   await runSqlFile("schema.sql");
   await upgradeLegacy();
+  await ensureExtraTables();
   await ensureIndex("orders", "idx_orders_created", "created_at");
   await ensureIndex("order_tenants", "idx_ot_status_created", "status_bayar, created_at");
   await seedIfFresh();

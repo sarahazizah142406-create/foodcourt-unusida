@@ -4,6 +4,7 @@ import { emitToTenant } from "../sockets/socket.js";
 import { HttpError, toInt } from "../utils.js";
 import { gatewayOn, mockOn } from "../config/mutasiku.js";
 import { batalkanSubOrder, bersihAlasan } from "./cancelService.js";
+import { cleanupStaleOrders } from "../config/cleanup.js";
 
 const MAX_QTY = 99;
 const MAX_ITEMS_PER_CART = 40;
@@ -23,13 +24,23 @@ export async function getConfig(req, res) {
   res.json({ qris_aktif: gatewayOn(), mock: mockOn() });
 }
 
-// GET /api/customer/tenants -> daftar kantin
+// GET /api/customer/tenants -> daftar kantin beserta antrian aktif saat ini
 export async function getTenants(req, res) {
   const [rows] = await pool.query(
-    `SELECT id, nama_kantin, foto, status
-     FROM tenants ORDER BY (status = 'buka') DESC, nama_kantin ASC`
+    `SELECT t.id, t.nama_kantin, t.foto, t.status,
+            COALESCE(q.antrian_aktif, 0) AS antrian_aktif
+     FROM tenants t
+     LEFT JOIN (
+       SELECT tenant_id, COUNT(*) AS antrian_aktif
+       FROM order_tenants
+       WHERE DATE(created_at) = CURDATE()
+         AND status_order IN ('diterima', 'diproses')
+         AND (status_bayar = 'lunas' OR metode_bayar = 'cash')
+       GROUP BY tenant_id
+     ) q ON q.tenant_id = t.id
+     ORDER BY (t.status = 'buka') DESC, t.nama_kantin ASC`
   );
-  res.json(rows);
+  res.json(rows.map((r) => ({ ...r, antrian_aktif: Number(r.antrian_aktif) })));
 }
 
 // GET /api/customer/menus -> semua menu dari semua kantin (untuk pencarian & perbandingan harga)
@@ -185,6 +196,7 @@ export async function checkout(req, res) {
 }
 
 async function loadStatus(orderIds) {
+  cleanupStaleOrders().catch(() => {});
   if (orderIds.length === 0) return [];
   const [rows] = await pool.query(
     `SELECT ot.id AS order_tenant_id, ot.order_id, ot.nomor_antrian, ot.status_bayar, ot.status_order,

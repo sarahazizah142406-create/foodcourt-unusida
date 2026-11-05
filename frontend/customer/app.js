@@ -270,12 +270,18 @@ function cmpRow(m, g) {
 function kantinCard(t) {
   const open = t.status === "buka";
   const img = safeImg(t.foto);
+  const qCount = Number(t.antrian_aktif) || 0;
+  const queueLabel = open ? (qCount > 0 ? `${qCount} antrian` : "Antrian kosong") : "Sedang tutup";
   return `
     <button class="kantin ${open ? "" : "closed"}" data-id="${t.id}" ${open ? "" : "disabled"} aria-label="${esc(t.nama_kantin)}${open ? "" : " (tutup)"}">
-      <div class="thumb">${img ? `<img src="${esc(img)}" alt="Foto ${esc(t.nama_kantin)}" loading="lazy">` : `<div class="ph">${icon("store")}</div>`}<span class="tag">${open ? "Buka" : "Tutup"}</span></div>
+      <div class="thumb">
+        ${img ? `<img src="${esc(img)}" alt="Foto ${esc(t.nama_kantin)}" loading="lazy">` : `<div class="ph">${icon("store")}</div>`}
+        <span class="tag">${open ? "Buka" : "Tutup"}</span>
+        ${open && qCount > 0 ? `<span class="tag-queue">${qCount} antre</span>` : ""}
+      </div>
       <div class="body">
         <h3>${esc(t.nama_kantin)}</h3>
-        <small class="k-sub">${open ? "Lihat menu" : "Sedang tutup"}${open ? icon("chev", "sm") : ""}</small>
+        <small class="k-sub"><span style="display:inline-flex;align-items:center;gap:4px">${open ? icon("clock", "sm") + esc(queueLabel) : "Sedang tutup"}</span>${open ? icon("chev", "sm") : ""}</small>
       </div>
     </button>`;
 }
@@ -384,6 +390,38 @@ async function viewCart() {
     </section>`;
 }
 
+const QUICK_CHIPS = [
+  { label: "🌶️ Lv 0", val: "Level 0", group: "level", title: "Tidak pedas" },
+  { label: "🌶️ Lv 1", val: "Level 1", group: "level", title: "Pedas sedikit" },
+  { label: "🌶️ Lv 2", val: "Level 2", group: "level", title: "Pedas sedang" },
+  { label: "🔥 Lv 3", val: "Level 3", group: "level", title: "Ekstra pedas" },
+  { label: "🔥 Lv 5", val: "Level 5", group: "level", title: "Super pedas" },
+  { label: "🧊 Es Dipisah", val: "Es Dipisah", group: "opt" },
+  { label: "🥡 Sambal Pisah", val: "Sambal Pisah", group: "opt" },
+  { label: "🥣 Kuah Pisah", val: "Kuah Pisah", group: "opt" },
+  { label: "🧅 Tanpa Bawang", val: "Tanpa Bawang", group: "opt" },
+  { label: "🌿 Tanpa Sayur", val: "Tanpa Sayur", group: "opt" },
+  { label: "🍚 Nasi Sedikit", val: "Nasi Sedikit", group: "opt" },
+];
+
+function isChipActive(val, group, note) {
+  if (!note) return false;
+  const n = note.toLowerCase();
+  const v = val.toLowerCase();
+  if (group === "level") {
+    const num = val.replace(/\D/g, "");
+    return new RegExp(`\\b(?:level|lv)\\s*${num}\\b`, "i").test(n);
+  }
+  return n.includes(v);
+}
+
+function renderQuickChips(noteText, tid) {
+  return QUICK_CHIPS.map((chip) => {
+    const active = isChipActive(chip.val, chip.group, noteText);
+    return `<button type="button" class="quick-chip ${active ? "active" : ""}" data-qchip="${esc(chip.val)}" data-qgroup="${chip.group}" data-t="${tid}" title="${esc(chip.title || chip.val)}">${chip.label}</button>`;
+  }).join("");
+}
+
 function cartCard(tid) {
   const c = state.cart[tid];
   const tenant = state.tenants.find((t) => t.id === Number(tid));
@@ -396,20 +434,82 @@ function cartCard(tid) {
     </div>`).join("");
   return `
     <section class="card cart-card" data-t="${tid}">
-      <h3>${esc(c.nama_kantin)}<a class="link-btn" href="#/menu/${tid}">${icon("plus", "sm")}Tambah menu</a></h3>
+      <div class="cart-card-header">
+        <h3>${esc(c.nama_kantin)}</h3>
+        <div class="cart-card-actions">
+          <a class="link-btn" href="#/menu/${tid}">${icon("plus", "sm")}Tambah</a>
+          <button class="btn danger-soft icon sm btn-del-cart" data-del-cart="${tid}" aria-label="Hapus kantin ini dari keranjang" title="Hapus kantin">${icon("trash", "sm")}</button>
+        </div>
+      </div>
       ${closed ? `<div class="form-error" style="margin:0 0 10px">Kantin ini sedang tutup. Hapus item atau tunggu sampai buka.</div>` : ""}
       ${lines}
       <div class="tipe-row">
         <button class="tipe-chip ${tipe === "dine_in" ? "active" : ""}" data-tipe="dine_in" data-t="${tid}">${icon("utensils", "sm")}Makan di tempat</button>
         <button class="tipe-chip ${tipe === "takeaway" ? "active" : ""}" data-tipe="takeaway" data-t="${tid}">${icon("bag", "sm")}Bungkus</button>
       </div>
-      <div class="field" style="margin:12px 0 0"><label>Catatan untuk kantin (opsional)</label>
-        <input class="input" data-note="${tid}" maxlength="255" placeholder="Contoh: tidak pedas, es dipisah" value="${esc(c.catatan)}"></div>
+      <div class="field" style="margin:12px 0 0">
+        <label>Catatan untuk kantin (opsional)</label>
+        <input class="input" data-note="${tid}" maxlength="255" placeholder="Contoh: Level 2, es dipisah, tanpa bawang" value="${esc(c.catatan)}">
+        <div class="quick-notes-wrap">
+          <div class="quick-notes-label">Pilih cepat:</div>
+          <div class="quick-chips">
+            ${renderQuickChips(c.catatan, tid)}
+          </div>
+        </div>
+      </div>
       <div class="total"><span>Subtotal</span><span>${rupiah(tenantSubtotal(c))}</span></div>
     </section>`;
 }
 
 document.addEventListener("click", async (e) => {
+  const qchip = e.target.closest("[data-qchip]");
+  if (qchip) {
+    const tid = qchip.dataset.t;
+    const val = qchip.dataset.qchip;
+    const group = qchip.dataset.qgroup;
+    if (!state.cart[tid]) return;
+
+    let cur = (state.cart[tid].catatan || "").trim();
+    const isActive = isChipActive(val, group, cur);
+
+    if (group === "level") {
+      cur = cur.replace(/\b(?:level|lv)\s*\d+\b/gi, "").replace(/,\s*,/g, ",").replace(/^,\s*|,\s*$/g, "").trim();
+      if (!isActive) {
+        cur = cur ? `${val}, ${cur}` : val;
+      }
+    } else {
+      if (isActive) {
+        const escaped = val.replace(/[-/\\^$*+?.()|[\]{}]/g, "\\$&");
+        const reg = new RegExp(`(?:,\\s*)?\\b${escaped}\\b(?:,\\s*)?`, "gi");
+        cur = cur.replace(reg, ", ").replace(/,\s*,/g, ",").replace(/^,\s*|,\s*$/g, "").trim();
+      } else {
+        cur = cur ? `${cur}, ${val}` : val;
+      }
+    }
+
+    state.cart[tid].catatan = cur;
+    saveCart();
+
+    const inp = document.querySelector(`input[data-note="${tid}"]`);
+    if (inp) inp.value = cur;
+
+    const chipWrap = qchip.closest(".quick-chips");
+    if (chipWrap) {
+      chipWrap.querySelectorAll("[data-qchip]").forEach((btn) => {
+        btn.classList.toggle("active", isChipActive(btn.dataset.qchip, btn.dataset.qgroup, cur));
+      });
+    }
+    return;
+  }
+  const delCart = e.target.closest("[data-del-cart]");
+  if (delCart) {
+    const tid = delCart.dataset.delCart;
+    delete state.cart[tid];
+    saveCart();
+    toast("Kantin dihapus dari keranjang");
+    updateBadges("cart");
+    return viewCart();
+  }
   const qtyBtn = e.target.closest(".cart-card [data-act]");
   if (qtyBtn) {
     const { t, m, act } = qtyBtn.dataset;
@@ -437,12 +537,27 @@ document.addEventListener("click", async (e) => {
 });
 document.addEventListener("input", (e) => {
   const note = e.target.closest("[data-note]");
-  if (note && state.cart[note.dataset.note]) { state.cart[note.dataset.note].catatan = note.value; saveCart(); }
+  if (note && state.cart[note.dataset.note]) {
+    const tid = note.dataset.note;
+    state.cart[tid].catatan = note.value;
+    saveCart();
+    const card = note.closest(".cart-card");
+    if (card) {
+      card.querySelectorAll("[data-qchip]").forEach((btn) => {
+        btn.classList.toggle("active", isChipActive(btn.dataset.qchip, btn.dataset.qgroup, note.value));
+      });
+    }
+  }
 });
 
 async function placeOrder(btn) {
   const ids = Object.keys(state.cart);
   if (!ids.length) return;
+  const closed = ids.map((id) => state.tenants.find((t) => t.id === Number(id))).filter((t) => t && t.status !== "buka");
+  if (closed.length > 0) {
+    toast(`${closed[0].nama_kantin} sedang tutup. Hapus kantin tersebut dari keranjang.`, "error");
+    return;
+  }
   const metode = payMethodNow();
   btn.disabled = true;
   FC.notify.ask(); // klik ini adalah sentuhan pengguna, jadi izin notifikasi boleh diminta sekarang
@@ -468,9 +583,9 @@ async function placeOrder(btn) {
     saveCart();
     state.highlight = res.order_id;
     joinRooms();
-    // Kembali ke beranda, tampilkan sheet sukses
-    location.hash = "#/";
-    setTimeout(() => showOrderSuccessSheet(res.order_id, metode), 100);
+    // Buka tab pesanan langsung agar pelanggan melihat QRIS / tiket antriannya
+    location.hash = "#/pesanan";
+    setTimeout(() => showOrderSuccessSheet(res.order_id, metode), 120);
   } catch (e) {
     toast(e.message, "error");
     btn.disabled = false;
@@ -488,17 +603,17 @@ function showOrderSuccessSheet(orderId, metode) {
     '<h2 class="success-title">Pesanan Terkirim!</h2>' +
     '<p class="success-sub">Pesanan <b>#' + orderId + '</b> sudah diterima kantin.</p>' +
     (isQris
-      ? '<div class="success-hint">' + icon("qr") + '<span>Buka tab <b>Pesanan</b> untuk scan QR pembayaran QRIS.</span></div>'
+      ? '<div class="success-hint">' + icon("qr") + '<span>Silakan scan QRIS di bawah untuk menyelesaikan pembayaran.</span></div>'
       : '<div class="success-hint cash-hint">' + icon("cash") + '<span>Sebutkan nomor antrian &amp; bayar tunai ke kasir tiap kantin.</span></div>'
     ) +
     '<div class="success-actions">' +
-    '<a class="btn block" href="#/pesanan" id="goOrders">Lihat status pesanan</a>' +
+    '<button class="btn block" id="goOrders">Lihat status pesanan</button>' +
     '<button class="btn ghost block" id="goHome" style="margin-top:8px">Pesan lagi</button>' +
     '</div></div>'
   );
   const el = sheets.el, close = sheets.close;
   el.querySelector("#goOrders").addEventListener("click", close);
-  el.querySelector("#goHome").addEventListener("click", close);
+  el.querySelector("#goHome").addEventListener("click", () => { close(); location.hash = "#/"; });
 }
 
 // ---------- pesanan & pembayaran ----------
@@ -508,7 +623,27 @@ let pollTimer = null;
 async function loadOrders() {
   const ids = getOrderIds();
   if (!ids.length) { state.orders = []; return; }
-  state.orders = await api(`/api/customer/orders/status?ids=${ids.join(",")}`);
+  try {
+    const raw = await api(`/api/customer/orders/status?ids=${ids.join(",")}`);
+    const todayStr = new Date().toDateString();
+    const activeToday = [];
+    const staleIds = new Set();
+    for (const o of raw) {
+      const isToday = new Date(o.created_at).toDateString() === todayStr;
+      if (isToday && o.dibatalkan_oleh !== "sistem") {
+        activeToday.push(o);
+      } else {
+        staleIds.add(o.order_id);
+      }
+    }
+    if (staleIds.size) {
+      staleIds.forEach(removeOrderId);
+    }
+    state.orders = activeToday;
+  } catch (err) {
+    state.orders = [];
+    throw err;
+  }
 }
 
 async function viewPesanan() {
@@ -606,6 +741,45 @@ function orderCardBatal(o) {
     </article>`;
 }
 
+function showTicketModal(orderTenantId, fallback = null) {
+  const o = state.orders.find((x) => x.order_tenant_id === orderTenantId);
+  const namaKantin = o?.nama_kantin || fallback?.nama_kantin || "Kantin";
+  const noAntrian = o?.nomor_antrian || fallback?.nomor_antrian || "-";
+  const noMeja = state.table?.nomor_meja || fallback?.nomor_meja || "-";
+  const isSiap = o ? o.status_order === "siap" : true;
+  const isLunas = o ? o.status_bayar === "lunas" : true;
+  const itemsHtml = o && o.items?.length
+    ? o.items.map((i) => `
+        <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px dashed var(--line);font-size:14px">
+          <span>${esc(i.nama_menu)}</span>
+          <b>${i.qty}×</b>
+        </div>
+      `).join("")
+    : `<div style="font-size:13px;color:var(--muted)">Antrian #${esc(noAntrian)} &middot; Meja ${esc(noMeja)}</div>`;
+
+  openSheet(`
+    <div class="ticket-sheet" style="text-align:center;padding:8px 4px 6px">
+      <div style="margin-bottom:12px">
+        <span class="badge ${isSiap ? "green" : "amber"}" style="font-size:13px;padding:4px 12px">${isSiap ? "Pesanan Siap Diambil!" : (STEP_LABEL[o?.status_order] || "Sedang Dimasak")}</span>
+        <h2 style="font-size:22px;margin:8px 0 2px">${esc(namaKantin)}</h2>
+        <p style="color:var(--muted);font-size:13px;margin:0">${icon("table", "sm")} Meja <b>${esc(noMeja)}</b>${o?.tipe_makan ? ` &middot; ${o.tipe_makan === "takeaway" ? "Bungkus" : "Makan di tempat"}` : ""}</p>
+      </div>
+      <div style="background:var(--surface-2);border:2px dashed var(--accent);border-radius:18px;padding:16px 12px;margin:14px 0">
+        <span style="font-size:12px;font-weight:700;letter-spacing:.08em;color:var(--muted)">NOMOR ANTRIAN</span>
+        <div style="font-size:52px;font-weight:900;line-height:1.1;color:var(--brand-ink);letter-spacing:.02em;margin:6px 0">#${esc(noAntrian)}</div>
+        <span class="badge ${isLunas ? "green" : "amber"}">${isLunas ? "Sudah Lunas" : "Belum Bayar (Tunai)"}</span>
+      </div>
+      <div style="text-align:left;background:var(--surface);border-radius:14px;padding:12px 14px;border:1px solid var(--line);margin:12px 0">
+        <div style="font-size:12px;font-weight:700;color:var(--muted);margin-bottom:6px">Pesanan:</div>
+        ${itemsHtml}
+        ${o?.catatan ? `<div style="margin-top:10px;padding:8px 10px;border-radius:8px;background:var(--surface-2);border-left:3px solid var(--accent);font-size:13px;color:var(--text)"><b>Catatan:</b> ${esc(o.catatan)}</div>` : ""}
+      </div>
+      <p style="color:var(--muted);font-size:12.5px;margin:10px 0 4px">${icon("bell", "sm")} Tunjukkan layar ini ke kasir saat mengambil pesanan.</p>
+      <button class="btn block" data-close style="margin-top:14px">Tutup</button>
+    </div>
+  `);
+}
+
 function orderCard(o, showCash) {
   if (o.status_order === "dibatalkan") return orderCardBatal(o);
   const idx = STEPS.indexOf(o.status_order);
@@ -619,13 +793,14 @@ function orderCard(o, showCash) {
       <div class="order-head">
         <div><h3>${esc(o.nama_kantin)}</h3><div class="when">${o.tipe_makan === "takeaway" ? "Bungkus" : "Makan di tempat"}</div>
           <div style="margin-top:8px"><span class="badge ${o.status_bayar === "lunas" ? "green" : "amber"}">${o.status_bayar === "lunas" ? "Lunas" : "Belum dibayar"}</span></div></div>
-        <div class="queue"><small>Antrian</small><b>${esc(o.nomor_antrian)}</b></div>
+        <div class="queue" data-ticket="${o.order_tenant_id}" role="button" tabindex="0" title="Ketuk untuk perbesar nomor antrian"><small>Antrian</small><b>${esc(o.nomor_antrian)}</b></div>
       </div>
       <div class="steps">${steps}</div>
       ${o.status_order === "siap" ? `<div class="ready-banner">${icon("bell")}Pesananmu sudah siap! Ambil di ${esc(o.nama_kantin)}.</div>` : ""}
       ${o.status_order === "diambil" ? `<div class="ready-banner" style="background:var(--brand-soft);color:var(--brand-ink)">${icon("check")}Selesai. Selamat menikmati!</div>` : ""}
       <div class="items-sum">${items}${o.catatan ? `<div class="note">Catatan: ${esc(o.catatan)}</div>` : ""}
         <div style="color:var(--text);font-weight:700;margin-top:4px"><span>Subtotal</span><span>${rupiah(o.subtotal)}</span></div></div>
+      <button class="btn ghost sm block" data-ticket="${o.order_tenant_id}" style="margin-top:10px">${icon("receipt", "sm")}Tunjukkan Tiket Antrian</button>
       ${showCash ? cashBox(o) : ""}
     </article>`;
 }
@@ -738,6 +913,10 @@ document.addEventListener("click", async (e) => {
     try { await api("/api/payments/mock/pay", { method: "POST", body: { order_id: Number(mock.dataset.mockpay) } }); }
     catch (err) { toast(err.message, "error"); mock.disabled = false; }
   }
+  const ticketBtn = e.target.closest("[data-ticket]");
+  if (ticketBtn) {
+    showTicketModal(Number(ticketBtn.dataset.ticket));
+  }
 });
 
 // Hitung mundur QR + cek berkala ke server (cadangan jika notifikasi realtime terlambat)
@@ -802,6 +981,16 @@ function joinRooms() {
     };
     socket.on("status_update", refresh);
     socket.on("bayar_update", refresh);
+    socket.on("panggil_pelanggan", (d) => {
+      const msg = `🔔 Panggilan dari ${d.nama_kantin}! Pesanan #${d.nomor_antrian} siap diambil!`;
+      toast(msg, "success");
+      FC.sound.play("ready", true);
+      FC.sound.nag("ready", { every: 10000, max: 4 });
+      if (navigator.vibrate) navigator.vibrate([400, 150, 400, 150, 400, 150, 800]);
+      FC.notify.show("🔔 Pesanan Siap Diambil!", `${d.nama_kantin} memanggilmu: Antrian #${d.nomor_antrian}`, { tag: "call-" + d.order_tenant_id });
+      FC.attention("🔔 Makanan Siap Diambil!");
+      showTicketModal(d.order_tenant_id, d);
+    });
   }
   getOrderIds().forEach((id) => socket.emit("join_order_room", id));
 }
