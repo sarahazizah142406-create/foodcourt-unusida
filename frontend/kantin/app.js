@@ -596,7 +596,16 @@ document.addEventListener("click", async (e) => {
   }
 });
 
+const VARIAN_OPTS = [
+  ["auto", "Otomatis (sesuai nama menu)"],
+  ["level", "Level Pedas (Lv 1–5 & Sambal Pisah)"],
+  ["minuman", "Minuman (Dingin / Tanpa Es / Es Sedikit)"],
+  ["air", "Minuman Botol / Air (Dingin / Biasa)"],
+  ["none", "Tanpa Pilihan Cepat (Makanan Umum)"]
+];
+
 function menuModal(menu = null) {
+  const curVar = menu?.opsi_varian || "auto";
   const s = openSheet(`
     <div class="sheet-head"><div><h3>${menu ? "Edit menu" : "Tambah menu"}</h3><p>Foto membantu pelanggan memilih, tapi boleh dikosongkan.</p></div>
       <button class="btn ghost icon sm" data-close aria-label="Tutup">${icon("x")}</button></div>
@@ -604,8 +613,10 @@ function menuModal(menu = null) {
       <label class="dropzone" id="dz"><input type="file" id="file" accept="image/jpeg,image/png,image/webp">
         <div id="dzInner"></div></label>
       <button type="button" class="btn danger-soft sm" id="rmImg" hidden style="justify-self:start">${icon("trash", "sm")}Hapus foto</button></div>
-    <div class="field"><label for="nm">Nama menu</label><input class="input" id="nm" maxlength="100" placeholder="Contoh: Ayam Geprek (Bisa Lv 1-5), Es Teh" value="${esc(menu?.nama_menu || "")}"></div>
+    <div class="field"><label for="nm">Nama menu</label><input class="input" id="nm" maxlength="100" placeholder="Contoh: Ayam Geprek, Es Coklat" value="${esc(menu?.nama_menu || "")}"></div>
     <div class="field"><label for="hg">Harga</label><div class="input-group"><span>Rp</span><input class="input" id="hg" type="number" inputmode="numeric" min="1" step="500" placeholder="15000" value="${menu?.harga || ""}"></div></div>
+    <div class="field"><label for="ov">Pilihan varian untuk pelanggan</label>
+      <select class="input" id="ov">${VARIAN_OPTS.map(([v, l]) => `<option value="${v}" ${curVar === v ? "selected" : ""}>${l}</option>`).join("")}</select></div>
     <div class="form-error" id="err" hidden></div>
     <div class="sheet-actions"><button class="btn ghost" data-close>Batal</button><button class="btn" id="save">Simpan</button></div>`);
   let picked = null, removeOld = false, current = safeImg(menu?.image_url);
@@ -625,9 +636,10 @@ function menuModal(menu = null) {
   $("#save", s.el).addEventListener("click", async (ev) => {
     const err = $("#err", s.el); err.hidden = true;
     const nama = $("#nm", s.el).value.trim(); const harga = Number($("#hg", s.el).value);
+    const opsiVarian = $("#ov", s.el).value || "auto";
     if (!nama || !Number.isSafeInteger(harga) || harga <= 0) { err.textContent = "Isi nama menu dan harga (angka bulat lebih dari 0)."; err.hidden = false; return; }
     const form = new FormData();
-    form.append("nama_menu", nama); form.append("harga", String(harga));
+    form.append("nama_menu", nama); form.append("harga", String(harga)); form.append("opsi_varian", opsiVarian);
     if (picked) form.append("foto", picked);
     if (removeOld) form.append("hapus_foto", "true");
     const btn = ev.currentTarget; btn.disabled = true; btn.textContent = "Menyimpan...";

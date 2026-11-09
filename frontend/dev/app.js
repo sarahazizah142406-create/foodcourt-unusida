@@ -95,15 +95,12 @@ async function viewKantin() {
       <div class="card stat"><div class="k">Sedang buka</div><div class="v">${m.kantin_buka}</div></div>
       <div class="card stat"><div class="k">Total meja</div><div class="v">${m.total_meja}</div></div>
       <div class="card stat"><div class="k">Total menu</div><div class="v">${m.total_menu}</div></div>
-      <div class="card stat"><div class="k">Order hari ini</div><div class="v">${m.total_order_hari_ini}</div></div>
-      <div class="card stat"><div class="k">Omzet lunas hari ini</div><div class="v" style="font-size:19px">${rupiah(m.omzet_hari_ini)}</div></div>
     </div>
-    <div id="grafik"></div><div class="section-title"><h2>Data kantin</h2>${can("kantin_tambah") ? `<button class="btn" id="add">${icon("plus", "sm")}Tambah kantin</button>` : ""}</div>
+    <div class="section-title"><h2>Data kantin</h2>${can("kantin_tambah") ? `<button class="btn" id="add">${icon("plus", "sm")}Tambah kantin</button>` : ""}</div>
     <div class="toolbar" style="margin-bottom:12px"><div class="search">${icon("search")}<input class="input" id="tq" placeholder="Cari kantin atau akun kasir..." value="${esc(state.q || "")}"></div></div><div class="tenants" id="tenants"></div>`;
   $("#add")?.addEventListener("click", () => tenantModal());
   $("#tq")?.addEventListener("input", (e) => { state.q = e.target.value; drawTenants(); });
   drawTenants();
-  loadGrafik();
 }
 
 function drawTenants() {
@@ -121,7 +118,7 @@ function drawTenants() {
         <button class="sw ${open ? "on" : ""}" ${can("kantin_status") ? `data-status="${t.id}"` : "disabled"} role="switch" aria-checked="${open}" aria-label="${open ? "Tutup kantin" : "Buka kantin"}" title="${open ? "Buka" : "Tutup"}"></button>
       </div>
       <div class="t-body">
-        ${state.role === "dev" ? `<div class="r"><span>Akun kasir</span><b>${t.kasir_username ? "@" + esc(t.kasir_username) : "—"}</b></div>` : ""}
+        ${state.role === "dev" ? `<div class="r"><span>Akun kasir</span><b>${t.kasir_username ? "@" + esc(t.kasir_username) : "Belum ada"}</b></div>` : ""}
         <div class="r"><span>Status</span><span class="badge ${open ? "green" : ""}">${open ? "Buka" : "Tutup"}</span></div>
       </div>
       <div class="t-actions">

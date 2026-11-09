@@ -121,13 +121,14 @@ main { padding: 20px 0 48px; }
 
 
 /* ---------- Polesan elegan ---------- */
-.top { box-shadow: 0 6px 20px rgba(19,68,48,.20); border-bottom: 2px solid var(--accent); }
-.section-title h2 { display: inline-flex; align-items: center; gap: 10px; }
-.section-title h2::after { content: ""; width: 30px; height: 2px; background: var(--accent); border-radius: 2px; }
-.stat { border-top: 2.5px solid var(--accent); }
-.stat.money { border-top-color: var(--accent); }
+.top {
+  background: radial-gradient(circle at 88% 0%, rgba(200,150,46,.22), transparent 42%),
+              linear-gradient(145deg, #134430, #1B5E3F);
+  box-shadow: 0 6px 20px rgba(19,68,48,.18);
+  border-bottom: 1px solid rgba(255,255,255,.12);
+}
 .order, .tenant, .meja, .menu-card { border-radius: 18px; transition: box-shadow .2s, transform .2s, border-color .2s; }
-.order:hover, .tenant:hover, .meja:hover, .menu-card:hover { box-shadow: var(--shadow); border-color: var(--brand-line); }
+.order:hover, .tenant:hover, .meja:hover, .menu-card:hover { box-shadow: var(--shadow); border-color: var(--brand-line); transform: translateY(-2px); }
 
 /* ---------- nota (struk) untuk printer thermal 58/80 mm ---------- */
 #receipt { display: none; }

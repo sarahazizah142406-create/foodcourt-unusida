@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Food Court UNUSIDA</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Serif:wght@400;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="shared/ui.css">
+<style>
+  .portal-wrap { min-height: 100vh; display: grid; place-items: center; padding: 24px 16px; }
+  .portal-box { width: 100%; max-width: 420px; padding: 24px 20px; text-align: center; }
+  .portal-links { display: grid; gap: 10px; margin-top: 18px; text-align: left; }
+  .portal-item {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    padding: 14px 16px; border-radius: 14px; border: 1px solid var(--line);
+    background: var(--surface-2); color: var(--text); text-decoration: none;
+    transition: border-color .15s, transform .15s, background .15s;
+  }
+  .portal-item:hover { border-color: var(--brand); background: var(--brand-soft); transform: translateY(-2px); }
+  .portal-item b { display: block; font-size: 15px; color: var(--brand-ink); }
+  .portal-item small { color: var(--muted); font-size: 12.5px; }
+</style>
+</head>
+<body>
+  <div class="portal-wrap">
+    <div class="card portal-box">
+      <h2>Food Court UNUSIDA</h2>
+      <p class="hint" style="margin-top:4px">Pilih halaman yang ingin dibuka:</p>
+      <div class="portal-links">
+        <a class="portal-item" href="/customer/">
+          <div><b>Halaman Pelanggan</b><small>Pesan menu &amp; pantau antrian meja</small></div>
+          <span>&rarr;</span>
+        </a>
+        <a class="portal-item" href="/kantin/">
+          <div><b>Dashboard Kantin</b><small>Kelola pesanan masuk, menu &amp; laporan</small></div>
+          <span>&rarr;</span>
+        </a>
+        <a class="portal-item" href="/dev/">
+          <div><b>Panel Admin</b><small>Kelola kantin, rekap pembayaran &amp; QR meja</small></div>
+          <span>&rarr;</span>
+        </a>
+      </div>
+    </div>
+  </div>
+</body>
+</html>
+

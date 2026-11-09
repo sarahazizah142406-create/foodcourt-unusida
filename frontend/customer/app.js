@@ -71,7 +71,14 @@ function setQty(tenant, menu, qty) {
     if (!state.cart[tid]) {
       state.cart[tid] = { nama_kantin: tenant.nama_kantin, catatan: "", tipe_makan: "dine_in", items: {} };
     }
-    state.cart[tid].items[menu.id] = { nama: menu.nama_menu, harga: menu.harga, qty: Math.min(qty, 99) };
+    const prev = state.cart[tid].items[menu.id];
+    state.cart[tid].items[menu.id] = {
+      nama: menu.nama_menu,
+      harga: menu.harga,
+      qty: Math.min(qty, 99),
+      opsi_varian: menu.opsi_varian ?? prev?.opsi_varian ?? "auto",
+      varian: prev?.varian || ""
+    };
   }
   saveCart();
 }
@@ -212,7 +219,7 @@ async function viewKantin() {
     const tenant = m && state.tenants.find((t) => t.id === m.tenant_id);
     if (!tenant) return;
     const cur = getQty(tenant.id, m.id);
-    setQty(tenant, { id: m.id, nama_menu: m.nama_menu, harga: m.harga }, btn.dataset.act === "plus" ? cur + 1 : cur - 1);
+    setQty(tenant, { id: m.id, nama_menu: m.nama_menu, harga: m.harga, opsi_varian: m.opsi_varian }, btn.dataset.act === "plus" ? cur + 1 : cur - 1);
     drawFound($("#q").value.trim().toLowerCase());
     $("#sCart").textContent = cartCount();
     renderCartBar();
@@ -390,36 +397,65 @@ async function viewCart() {
     </section>`;
 }
 
-const QUICK_CHIPS = [
-  { label: "🌶️ Lv 0", val: "Level 0", group: "level", title: "Tidak pedas" },
-  { label: "🌶️ Lv 1", val: "Level 1", group: "level", title: "Pedas sedikit" },
-  { label: "🌶️ Lv 2", val: "Level 2", group: "level", title: "Pedas sedang" },
-  { label: "🔥 Lv 3", val: "Level 3", group: "level", title: "Ekstra pedas" },
-  { label: "🔥 Lv 5", val: "Level 5", group: "level", title: "Super pedas" },
-  { label: "🧊 Es Dipisah", val: "Es Dipisah", group: "opt" },
-  { label: "🥡 Sambal Pisah", val: "Sambal Pisah", group: "opt" },
-  { label: "🥣 Kuah Pisah", val: "Kuah Pisah", group: "opt" },
-  { label: "🧅 Tanpa Bawang", val: "Tanpa Bawang", group: "opt" },
-  { label: "🌿 Tanpa Sayur", val: "Tanpa Sayur", group: "opt" },
-  { label: "🍚 Nasi Sedikit", val: "Nasi Sedikit", group: "opt" },
-];
+const VARIAN_PRESETS = {
+  level: [
+    { label: "🚫 Tidak Pedas", val: "Tidak Pedas", group: "pedas" },
+    { label: "🌶️ Lv 1", val: "Level 1", group: "pedas" },
+    { label: "🌶️ Lv 2", val: "Level 2", group: "pedas" },
+    { label: "🔥 Lv 3", val: "Level 3", group: "pedas" },
+    { label: "🔥 Lv 5", val: "Level 5", group: "pedas" },
+    { label: "🥡 Sambal Pisah", val: "Sambal Pisah", group: "opt" }
+  ],
+  minuman: [
+    { label: "🧊 Dingin (Es)", val: "Dingin", group: "suhu" },
+    { label: "💧 Tanpa Es", val: "Tanpa Es", group: "suhu" },
+    { label: "🧊 Es Sedikit", val: "Es Sedikit", group: "suhu" }
+  ],
+  air: [
+    { label: "🧊 Dingin", val: "Dingin", group: "suhu" },
+    { label: "💧 Biasa (Tidak Dingin)", val: "Tidak Dingin", group: "suhu" }
+  ],
+  none: []
+};
 
-function isChipActive(val, group, note) {
-  if (!note) return false;
-  const n = note.toLowerCase();
-  const v = val.toLowerCase();
-  if (group === "level") {
-    const num = val.replace(/\D/g, "");
-    return new RegExp(`\\b(?:level|lv)\\s*${num}\\b`, "i").test(n);
+function detectVariantType(nama, opsiVarian) {
+  if (opsiVarian && opsiVarian !== "auto" && VARIAN_PRESETS[opsiVarian]) return opsiVarian;
+  const n = String(nama || "").toLowerCase();
+  if (/\b(air\s*mineral|air\s*putih|mineral|aqua|cleo|le\s*minerale|vit\b|club\b|teh\s*botol|pucuk|freshtea)\b/i.test(n)) {
+    return "air";
   }
-  return n.includes(v);
+  if (/\b(seblak|geprek|mercon|setan|gacoan|mie\s*pedas|mi\s*pedas|pentol\s*pedas|ceker\s*pedas|taichan|pedas|pedes)\b/i.test(n)) {
+    return "level";
+  }
+  if (/\b(es\b|teh\b|jeruk|kopi|coffee|coklat|cokelat|chocolate|matcha|taro|susu|milk|jus|juice|sirup|lemon|thai\s*tea|green\s*tea|cappuccino|latte|milo|nutrisari|good\s*day|pop\s*ice|boba|float|squash|minuman|wedang|jahe|bandrek)\b/i.test(n)) {
+    return "minuman";
+  }
+  return "none";
 }
 
-function renderQuickChips(noteText, tid) {
-  return QUICK_CHIPS.map((chip) => {
-    const active = isChipActive(chip.val, chip.group, noteText);
-    return `<button type="button" class="quick-chip ${active ? "active" : ""}" data-qchip="${esc(chip.val)}" data-qgroup="${chip.group}" data-t="${tid}" title="${esc(chip.title || chip.val)}">${chip.label}</button>`;
-  }).join("");
+function getItemParts(varianStr) {
+  return String(varianStr || "").split(",").map((s) => s.trim()).filter(Boolean);
+}
+
+function renderItemVariantChips(tid, mid, it) {
+  const type = detectVariantType(it.nama, it.opsi_varian);
+  const chips = VARIAN_PRESETS[type] || [];
+  if (!chips.length) return "";
+  const selected = getItemParts(it.varian).map((s) => s.toLowerCase());
+  return `<div class="item-variants" data-t="${tid}" data-m="${mid}">
+    ${chips.map((c) => {
+    const active = selected.includes(c.val.toLowerCase());
+    return `<button type="button" class="quick-chip ${active ? "active" : ""}" data-ichip="${esc(c.val)}" data-igroup="${c.group}" data-itype="${type}" data-t="${tid}" data-m="${mid}">${c.label}</button>`;
+  }).join("")}
+  </div>`;
+}
+
+function buildCartCatatan(c) {
+  const varNotes = Object.values(c.items || {})
+    .filter((it) => it.varian && it.varian.trim())
+    .map((it) => `${it.nama}: ${it.varian.trim()}`);
+  const manual = (c.catatan || "").trim();
+  return [...varNotes, ...(manual ? [manual] : [])].join(" · ").slice(0, 255);
 }
 
 function cartCard(tid) {
@@ -428,9 +464,12 @@ function cartCard(tid) {
   const closed = tenant && tenant.status !== "buka";
   const tipe = c.tipe_makan === "takeaway" ? "takeaway" : "dine_in";
   const lines = Object.entries(c.items).map(([mid, it]) => `
-    <div class="line">
-      <div><div class="name">${esc(it.nama)}</div><div class="sub">${rupiah(it.harga)} × ${it.qty} = ${rupiah(it.harga * it.qty)}</div></div>
-      <div class="qty"><button data-act="minus" data-t="${tid}" data-m="${mid}" aria-label="Kurangi">${icon("minus", "sm")}</button><span>${it.qty}</span><button data-act="plus" data-t="${tid}" data-m="${mid}" aria-label="Tambah">${icon("plus", "sm")}</button></div>
+    <div class="line-wrap">
+      <div class="line">
+        <div><div class="name">${esc(it.nama)}</div><div class="sub">${rupiah(it.harga)} × ${it.qty} = ${rupiah(it.harga * it.qty)}</div></div>
+        <div class="qty"><button data-act="minus" data-t="${tid}" data-m="${mid}" aria-label="Kurangi">${icon("minus", "sm")}</button><span>${it.qty}</span><button data-act="plus" data-t="${tid}" data-m="${mid}" aria-label="Tambah">${icon("plus", "sm")}</button></div>
+      </div>
+      ${renderItemVariantChips(tid, mid, it)}
     </div>`).join("");
   return `
     <section class="card cart-card" data-t="${tid}">
@@ -448,55 +487,41 @@ function cartCard(tid) {
         <button class="tipe-chip ${tipe === "takeaway" ? "active" : ""}" data-tipe="takeaway" data-t="${tid}">${icon("bag", "sm")}Bungkus</button>
       </div>
       <div class="field" style="margin:12px 0 0">
-        <label>Catatan untuk kantin (opsional)</label>
-        <input class="input" data-note="${tid}" maxlength="255" placeholder="Contoh: Level 2, es dipisah, tanpa bawang" value="${esc(c.catatan)}">
-        <div class="quick-notes-wrap">
-          <div class="quick-notes-label">Pilih cepat:</div>
-          <div class="quick-chips">
-            ${renderQuickChips(c.catatan, tid)}
-          </div>
-        </div>
+        <label>Catatan tambahan untuk kantin (opsional)</label>
+        <input class="input" data-note="${tid}" maxlength="255" placeholder="Contoh: tanpa bawang, kurangi gula" value="${esc(c.catatan)}">
       </div>
       <div class="total"><span>Subtotal</span><span>${rupiah(tenantSubtotal(c))}</span></div>
     </section>`;
 }
 
 document.addEventListener("click", async (e) => {
-  const qchip = e.target.closest("[data-qchip]");
-  if (qchip) {
-    const tid = qchip.dataset.t;
-    const val = qchip.dataset.qchip;
-    const group = qchip.dataset.qgroup;
-    if (!state.cart[tid]) return;
+  const ichip = e.target.closest("[data-ichip]");
+  if (ichip) {
+    const { t: tid, m: mid, ichip: val, igroup: group, itype: type } = ichip.dataset;
+    const it = state.cart[tid]?.items?.[mid];
+    if (!it) return;
 
-    let cur = (state.cart[tid].catatan || "").trim();
-    const isActive = isChipActive(val, group, cur);
+    const presets = VARIAN_PRESETS[type] || [];
+    const sameGroupVals = new Set(presets.filter((p) => p.group === group).map((p) => p.val.toLowerCase()));
+    let parts = getItemParts(it.varian);
+    const already = parts.some((p) => p.toLowerCase() === val.toLowerCase());
 
-    if (group === "level") {
-      cur = cur.replace(/\b(?:level|lv)\s*\d+\b/gi, "").replace(/,\s*,/g, ",").replace(/^,\s*|,\s*$/g, "").trim();
-      if (!isActive) {
-        cur = cur ? `${val}, ${cur}` : val;
-      }
+    if (group === "pedas" || group === "suhu") {
+      parts = parts.filter((p) => !sameGroupVals.has(p.toLowerCase()));
+      if (!already) parts.unshift(val);
     } else {
-      if (isActive) {
-        const escaped = val.replace(/[-/\\^$*+?.()|[\]{}]/g, "\\$&");
-        const reg = new RegExp(`(?:,\\s*)?\\b${escaped}\\b(?:,\\s*)?`, "gi");
-        cur = cur.replace(reg, ", ").replace(/,\s*,/g, ",").replace(/^,\s*|,\s*$/g, "").trim();
-      } else {
-        cur = cur ? `${cur}, ${val}` : val;
-      }
+      if (already) parts = parts.filter((p) => p.toLowerCase() !== val.toLowerCase());
+      else parts.push(val);
     }
 
-    state.cart[tid].catatan = cur;
+    it.varian = parts.join(", ");
     saveCart();
 
-    const inp = document.querySelector(`input[data-note="${tid}"]`);
-    if (inp) inp.value = cur;
-
-    const chipWrap = qchip.closest(".quick-chips");
-    if (chipWrap) {
-      chipWrap.querySelectorAll("[data-qchip]").forEach((btn) => {
-        btn.classList.toggle("active", isChipActive(btn.dataset.qchip, btn.dataset.qgroup, cur));
+    const wrap = ichip.closest(".item-variants");
+    if (wrap) {
+      const activeSet = new Set(parts.map((p) => p.toLowerCase()));
+      wrap.querySelectorAll("[data-ichip]").forEach((btn) => {
+        btn.classList.toggle("active", activeSet.has(btn.dataset.ichip.toLowerCase()));
       });
     }
     return;
@@ -516,7 +541,7 @@ document.addEventListener("click", async (e) => {
     const it = state.cart[t]?.items[m];
     if (!it) return;
     const tenant = { id: Number(t), nama_kantin: state.cart[t].nama_kantin };
-    setQty(tenant, { id: Number(m), nama_menu: it.nama, harga: it.harga }, it.qty + (act === "plus" ? 1 : -1));
+    setQty(tenant, { id: Number(m), nama_menu: it.nama, harga: it.harga, opsi_varian: it.opsi_varian }, it.qty + (act === "plus" ? 1 : -1));
     updateBadges("cart");
     return viewCart();
   }
@@ -538,15 +563,8 @@ document.addEventListener("click", async (e) => {
 document.addEventListener("input", (e) => {
   const note = e.target.closest("[data-note]");
   if (note && state.cart[note.dataset.note]) {
-    const tid = note.dataset.note;
-    state.cart[tid].catatan = note.value;
+    state.cart[note.dataset.note].catatan = note.value;
     saveCart();
-    const card = note.closest(".cart-card");
-    if (card) {
-      card.querySelectorAll("[data-qchip]").forEach((btn) => {
-        btn.classList.toggle("active", isChipActive(btn.dataset.qchip, btn.dataset.qgroup, note.value));
-      });
-    }
   }
 });
 
@@ -572,7 +590,7 @@ async function placeOrder(btn) {
         carts: ids.map((tid) => ({
           tenant_id: Number(tid),
           tipe_makan: state.cart[tid].tipe_makan === "takeaway" ? "takeaway" : "dine_in",
-          catatan: state.cart[tid].catatan,
+          catatan: buildCartCatatan(state.cart[tid]),
           items: Object.entries(state.cart[tid].items).map(([mid, it]) => ({ menu_id: Number(mid), qty: it.qty }))
         }))
       }
@@ -810,7 +828,7 @@ function cashBox(o) {
     const done = o.status_order === "diambil";
     return '<div class="pay-box paid">' +
       '<h4>' + icon("check") + 'Pembayaran sudah diterima kasir</h4>' +
-      (done ? '<div class="paid-done-label">' + icon("utensils","sm") + ' Pesanan selesai — selamat menikmati!</div>' : '') +
+      (done ? '<div class="paid-done-label">' + icon("utensils", "sm") + ' Pesanan selesai — selamat menikmati!</div>' : '') +
       '</div>';
   }
   return '<div class="pay-box cash">' +
@@ -1026,7 +1044,9 @@ async function init() {
     } else if (saved) {
       state.table = saved.table;
     } else {
-      return fatal("Scan QR di mejamu", "Buka halaman ini lewat QR code yang ada di meja supaya kami tahu pesananmu diantar ke meja mana.");
+      const def = await api("/api/customer/tables/DEFAULT");
+      state.table = def;
+      store.set("fc_table_v2", { qr: def.qr_code || "DEFAULT", table: def });
     }
   } catch (e) {
     return fatal("Meja tidak dikenali", e.status === 404 ? "QR meja tidak valid. Coba scan ulang QR di mejamu." : e.message);
@@ -1034,7 +1054,7 @@ async function init() {
   try { state.cfg = await api("/api/customer/config"); } catch { /* QRIS dianggap belum aktif */ }
   shell();
   window.addEventListener("hashchange", router);
-  if (getOrderIds().length) { loadOrders().then(() => updateBadges(currentRoute())).catch(() => {}); joinRooms(); }
+  if (getOrderIds().length) { loadOrders().then(() => updateBadges(currentRoute())).catch(() => { }); joinRooms(); }
   router();
 }
 

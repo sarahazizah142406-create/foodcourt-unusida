@@ -5,6 +5,16 @@ import bcrypt from "bcryptjs";
 import { pool } from "./db.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const SQL_DIR = path.resolve(__dirname, "../../sql");
+
+function resolveSqlFile(candidates) {
+  const list = Array.isArray(candidates) ? candidates : [candidates];
+  for (const name of list) {
+    const file = path.resolve(SQL_DIR, name);
+    if (fs.existsSync(file)) return file;
+  }
+  return null;
+}
 
 async function columnInfo(table, column) {
   const [rows] = await pool.query(
@@ -27,7 +37,12 @@ async function run(sql, label) {
 
 // 1) Buat tabel yang belum ada (+ data awal kalau kosong) dari sql/schema.sql
 async function runSqlFile(name) {
-  const file = path.resolve(__dirname, "../../sql", name);
+  const file = path.isAbsolute(name) ? name : resolveSqlFile(Array.isArray(name) ? name : [name]);
+  if (!file) {
+    if (Array.isArray(name) && name.includes("seed.sql")) return;
+    if (typeof name === "string" && name === "seed.sql") return;
+    throw new Error(`SQL file tidak ditemukan: ${Array.isArray(name) ? name.join(", ") : name}`);
+  }
   const raw = fs.readFileSync(file, "utf8");
   const cleaned = raw.split("\n").filter((l) => !l.trim().startsWith("--")).join("\n");
   const statements = cleaned.split(/;\s*(?:\n|$)/).map((s) => s.trim()).filter(Boolean);
@@ -64,6 +79,9 @@ async function upgradeLegacy() {
   const mFoto = await columnInfo("menus", "foto");
   if (mFoto && mFoto.type !== "mediumtext") {
     await run("ALTER TABLE menus MODIFY COLUMN foto MEDIUMTEXT NULL", "menus.foto -> MEDIUMTEXT");
+  }
+  if (!(await columnInfo("menus", "opsi_varian"))) {
+    await run("ALTER TABLE menus ADD COLUMN opsi_varian VARCHAR(30) NOT NULL DEFAULT 'auto'", "menus.opsi_varian ditambahkan");
   }
   const antrian = await columnInfo("order_tenants", "nomor_antrian");
   if (antrian && antrian.len < 20) {
@@ -150,8 +168,11 @@ async function hashPlainPasswords() {
 async function seedIfFresh() {
   const [[{ n }]] = await pool.query("SELECT COUNT(*) AS n FROM users");
   if (n === 0) {
-    await runSqlFile("seed.sql");
-    console.log("🌱 Data awal dimasukkan (database baru). Segera ganti password default!");
+    const seedFile = resolveSqlFile(["seed.sql"]);
+    if (seedFile) {
+      await runSqlFile(seedFile);
+      console.log("🌱 Data awal dimasukkan (database baru). Segera ganti password default!");
+    }
   }
 }
 
@@ -175,7 +196,21 @@ async function ensureExtraTables() {
 }
 
 export async function migrate() {
-  await runSqlFile("schema.sql");
+  const [[{ table_count }]] = await pool.query(
+    "SELECT COUNT(*) AS table_count FROM information_schema.tables WHERE table_schema = DATABASE()"
+  );
+
+  if (Number(table_count) === 0) {
+    const initialFile = resolveSqlFile(["schema.sql", "defaultdb.sql"]);
+    if (initialFile) {
+      await runSqlFile(initialFile);
+    } else {
+      console.warn("⚠️  Tidak ada file SQL awal di folder sql/. Melewati import skema otomatis.");
+    }
+  } else {
+    console.log(`✅ Database sudah berisi ${table_count} tabel; skip import skema otomatis.`);
+  }
+
   await upgradeLegacy();
   await ensureExtraTables();
   await ensureIndex("orders", "idx_orders_created", "created_at");

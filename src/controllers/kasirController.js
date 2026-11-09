@@ -230,10 +230,12 @@ export async function bersihkanOrder(req, res) {
 
 // ---------- MENU ----------
 
+const VALID_VARIAN = new Set(["auto", "level", "pedas", "minuman", "air", "none"]);
+
 // GET /api/kasir/menus -> semua menu kantin sendiri (tersedia & habis)
 export async function listMenus(req, res) {
   const [rows] = await pool.query(
-    "SELECT id, nama_menu, harga, foto AS image_url, status FROM menus WHERE tenant_id = ? ORDER BY nama_menu ASC",
+    "SELECT *, foto AS image_url FROM menus WHERE tenant_id = ? ORDER BY nama_menu ASC",
     [req.tenantId]
   );
   res.json(rows);
@@ -242,20 +244,22 @@ export async function listMenus(req, res) {
 function readMenuBody(req) {
   const namaMenu = typeof req.body?.nama_menu === "string" ? req.body.nama_menu.trim() : "";
   const harga = Number(req.body?.harga);
+  const rawVarian = typeof req.body?.opsi_varian === "string" ? req.body.opsi_varian.trim() : "auto";
+  const opsiVarian = VALID_VARIAN.has(rawVarian) ? rawVarian : "auto";
   if (!namaMenu || namaMenu.length > 100 || !Number.isSafeInteger(harga) || harga <= 0 || harga > 10_000_000) {
     throw new HttpError(400, "Nama menu (maks. 100 karakter) dan harga bulat lebih dari 0 wajib diisi");
   }
-  return { namaMenu, harga };
+  return { namaMenu, harga, opsiVarian };
 }
 
 // POST /api/kasir/menus
 export async function tambahMenu(req, res) {
-  const { namaMenu, harga } = readMenuBody(req);
+  const { namaMenu, harga, opsiVarian } = readMenuBody(req);
   const file = fileOf(req, "foto");
   const foto = file ? await saveImage(file.buffer, "foodcourt/menus") : null;
   const [result] = await pool.query(
-    "INSERT INTO menus (tenant_id, nama_menu, harga, foto) VALUES (?, ?, ?, ?)",
-    [req.tenantId, namaMenu, harga, foto]
+    "INSERT INTO menus (tenant_id, nama_menu, harga, foto, opsi_varian) VALUES (?, ?, ?, ?, ?)",
+    [req.tenantId, namaMenu, harga, foto, opsiVarian]
   );
   res.status(201).json({ id: result.insertId, message: "Menu berhasil ditambahkan" });
 }
@@ -264,7 +268,7 @@ export async function tambahMenu(req, res) {
 export async function updateMenu(req, res) {
   const menuId = toInt(req.params.menuId);
   if (Number.isNaN(menuId)) throw new HttpError(400, "ID menu tidak valid");
-  const { namaMenu, harga } = readMenuBody(req);
+  const { namaMenu, harga, opsiVarian } = readMenuBody(req);
 
   const [menus] = await pool.query("SELECT foto FROM menus WHERE id = ? AND tenant_id = ?", [menuId, req.tenantId]);
   if (!menus[0]) throw new HttpError(404, "Menu tidak ditemukan");
@@ -274,8 +278,8 @@ export async function updateMenu(req, res) {
   if (file) foto = await saveImage(file.buffer, "foodcourt/menus");
 
   await pool.query(
-    "UPDATE menus SET nama_menu = ?, harga = ?, foto = ? WHERE id = ? AND tenant_id = ?",
-    [namaMenu, harga, foto, menuId, req.tenantId]
+    "UPDATE menus SET nama_menu = ?, harga = ?, foto = ?, opsi_varian = ? WHERE id = ? AND tenant_id = ?",
+    [namaMenu, harga, foto, opsiVarian, menuId, req.tenantId]
   );
   res.json({ message: "Menu berhasil diperbarui" });
 }

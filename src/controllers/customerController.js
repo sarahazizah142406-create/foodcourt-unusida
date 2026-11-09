@@ -11,9 +11,17 @@ const MAX_ITEMS_PER_CART = 40;
 
 // GET /api/customer/tables/:qr_code -> validasi meja dari hasil scan
 export async function getTableByQR(req, res) {
+  const code = req.params.qr_code;
+  if (code === "DEFAULT") {
+    const [first] = await pool.query(
+      "SELECT id, nomor_meja, qr_code FROM tables_fc ORDER BY id ASC LIMIT 1"
+    );
+    if (first.length === 0) throw new HttpError(404, "Belum ada data meja di database");
+    return res.json(first[0]);
+  }
   const [rows] = await pool.query(
-    "SELECT id, nomor_meja FROM tables_fc WHERE qr_code = ?",
-    [req.params.qr_code]
+    "SELECT id, nomor_meja, qr_code FROM tables_fc WHERE qr_code = ?",
+    [code]
   );
   if (rows.length === 0) throw new HttpError(404, "Meja tidak ditemukan, coba scan ulang QR di meja");
   res.json(rows[0]);
@@ -46,7 +54,7 @@ export async function getTenants(req, res) {
 // GET /api/customer/menus -> semua menu dari semua kantin (untuk pencarian & perbandingan harga)
 export async function getAllMenus(req, res) {
   const [rows] = await pool.query(
-    `SELECT m.id, m.tenant_id, m.nama_menu, m.harga, m.foto AS image_url, m.status,
+    `SELECT m.*, m.foto AS image_url,
             t.nama_kantin, t.status AS kantin_status
      FROM menus m JOIN tenants t ON t.id = m.tenant_id
      ORDER BY m.nama_menu ASC, m.harga ASC`
@@ -59,7 +67,7 @@ export async function getMenusByTenant(req, res) {
   const tenantId = toInt(req.params.tenantId);
   if (Number.isNaN(tenantId)) throw new HttpError(400, "ID kantin tidak valid");
   const [rows] = await pool.query(
-    `SELECT id, nama_menu, harga, foto AS image_url, status
+    `SELECT *, foto AS image_url
      FROM menus WHERE tenant_id = ?
      ORDER BY (status = 'tersedia') DESC, nama_menu ASC`,
     [tenantId]
