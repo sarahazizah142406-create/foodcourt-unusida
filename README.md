@@ -26,8 +26,8 @@ Server otomatis **membuat tabel & data awal**, dan **meng-upgrade database lama*
 Setelah jalan, buka `http://localhost:3000/dev/`.
 
 Login awal (password semua: `password123` — **segera ganti** lewat Panel Admin → Akun):
-`admin_dev` (dev), `kantin_bunda_iin`, `kasir_joko`, `kasir_padang`, `kasir_mieayam`,
-`kasir_sehat`, `kasir_soto`, `kasir_jajanan`, `kasir_minuman`.
+- **Admin**: `admin_dev` (superuser/dev), `mia_tif` (admin)
+- **Kantin/Kasir**: `bunda_iin`, `nasi_campur`, `bu_ayu`, `bu_tutik`, `bu_nanik`, `bu_tatik`, `kasir_minuman`
 
 MySQL lokal (bukan Aiven): isi `DB_SSL=false` di `.env`.
 

@@ -402,11 +402,21 @@ async function viewMeja() {
     <div class="card meja"><label class="pick"><input type="checkbox" data-pick="${t.id}"> pilih</label><b>Meja ${esc(t.nomor_meja)}</b>
       <div class="qrbox">${qrSvg(customerUrl(t.qr_code))}</div>
       <code>${esc(t.qr_code)}</code>
-      <div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:center"><button class="btn ghost sm" data-open="${esc(customerUrl(t.qr_code))}">Buka</button><button class="btn soft sm" data-printtable="${t.id}" aria-label="Cetak QR meja ${esc(t.nomor_meja)}" title="Cetak QR meja ini">${icon("printer", "sm")}</button><button class="btn ghost sm" data-edittable="${t.id}" title="Ubah nomor meja" aria-label="Ubah nomor meja">${icon("pencil", "sm")}</button><button class="btn ghost sm" data-regen="${t.id}" title="Buat ulang QR" aria-label="Buat ulang QR">${icon("refresh", "sm")}</button><button class="btn danger-soft sm" data-deltable="${t.id}" aria-label="Hapus meja ${esc(t.nomor_meja)}">${icon("trash", "sm")}</button></div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:center"><button class="btn ghost sm" data-open="${esc(customerUrl(t.qr_code))}">Buka</button><button class="btn ghost sm" data-copyurl="${esc(customerUrl(t.qr_code))}" title="Salin link meja" aria-label="Salin link">${icon("copy", "sm")}Salin</button><button class="btn soft sm" data-printtable="${t.id}" aria-label="Cetak QR meja ${esc(t.nomor_meja)}" title="Cetak QR meja ini">${icon("printer", "sm")}</button><button class="btn ghost sm" data-edittable="${t.id}" title="Ubah nomor meja" aria-label="Ubah nomor meja">${icon("pencil", "sm")}</button><button class="btn ghost sm" data-regen="${t.id}" title="Buat ulang QR" aria-label="Buat ulang QR">${icon("refresh", "sm")}</button><button class="btn danger-soft sm" data-deltable="${t.id}" aria-label="Hapus meja ${esc(t.nomor_meja)}">${icon("trash", "sm")}</button></div>
     </div>`).join("");
 }
 
 document.addEventListener("click", async (e) => {
+  const cp = e.target.closest("[data-copyurl]");
+  if (cp) {
+    try {
+      await navigator.clipboard.writeText(cp.dataset.copyurl);
+      toast("Link meja disalin ke clipboard", "success");
+    } catch {
+      toast("Gagal menyalin link");
+    }
+    return;
+  }
   const o = e.target.closest("[data-open]");
   if (o) return window.open(o.dataset.open, "_blank", "noopener");
   const pt = e.target.closest("[data-printtable]");

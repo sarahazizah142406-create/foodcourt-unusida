@@ -278,13 +278,14 @@ function kantinCard(t) {
   const open = t.status === "buka";
   const img = safeImg(t.foto);
   const qCount = Number(t.antrian_aktif) || 0;
-  const queueLabel = open ? (qCount > 0 ? `${qCount} antrian` : "Antrian kosong") : "Sedang tutup";
+  const waitEst = qCount > 0 ? `~${Math.max(5, qCount * 4)} mnt` : "siap cepat";
+  const queueLabel = open ? (qCount > 0 ? `${qCount} antrian · ${waitEst}` : "Antrian kosong · siap cepat") : "Sedang tutup";
   return `
     <button class="kantin ${open ? "" : "closed"}" data-id="${t.id}" ${open ? "" : "disabled"} aria-label="${esc(t.nama_kantin)}${open ? "" : " (tutup)"}">
       <div class="thumb">
         ${img ? `<img src="${esc(img)}" alt="Foto ${esc(t.nama_kantin)}" loading="lazy">` : `<div class="ph">${icon("store")}</div>`}
         <span class="tag">${open ? "Buka" : "Tutup"}</span>
-        ${open && qCount > 0 ? `<span class="tag-queue">${qCount} antre</span>` : ""}
+        ${open && qCount > 0 ? `<span class="tag-queue">${qCount} antre · ${waitEst}</span>` : ""}
       </div>
       <div class="body">
         <h3>${esc(t.nama_kantin)}</h3>
