@@ -3,3 +3,5 @@ node_modules/
 npm-debug.log*
 kantin-app/node_modules/
 kantin-app/android/
+*.zip
+~$*
