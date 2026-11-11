@@ -293,7 +293,7 @@ function drawOrders() {
   })[f];
   $("#chips").innerHTML = [["aktif", "Aktif"], ["belum", "Belum bayar"], ["selesai", "Selesai"], ["batal", "Dibatalkan"], ["semua", "Semua"]]
     .map(([f, l]) => `<button class="chip ${state.filter === f ? "active" : ""}" data-f="${f}">${l} (${cnt(f)})</button>`).join("")
-    + `<button class="chip" data-nota-w title="Ukuran kertas struk">${icon("receipt", "sm")} Nota ${notaMm()} mm</button>`
+    + `<button class="chip" data-nota-w title="Ukuran kertas struk (58 mm / 80 mm / Japanese Envelope)">${icon("receipt", "sm")} Nota ${notaLabel()}</button>`
     + (state.orders.some((o) => !isAktif(o)) ? `<button class="chip" data-bersih title="Hapus semua pesanan selesai & dibatalkan dari tampilan">${icon("trash", "sm")} Bersihkan selesai</button>` : "");
   const list = filtered();
   if (!list.length) {
@@ -477,7 +477,16 @@ document.addEventListener("click", async (e) => {
   }
   const pr = e.target.closest("[data-print]");
   if (pr) { const o = state.orders.find((x) => x.order_tenant_id === Number(pr.dataset.print)); if (o) printNota(o); return; }
-  if (e.target.closest("[data-nota-w]")) { store.set("fc_nota_mm", notaMm() === 58 ? 80 : 58); drawOrders(); toast(`Ukuran nota: ${notaMm()} mm`); return; }
+  if (e.target.closest("[data-nota-w]")) {
+    const cur = notaMode();
+    const next = cur === "58" ? "80" : (cur === "80" ? "env" : "58");
+    store.set("fc_nota_mode", next);
+    store.set("fc_nota_mm", next === "env" ? 90 : Number(next));
+    drawOrders();
+    const name = next === "env" ? "Japanese Envelope (Chou #4 - 90 mm)" : next + " mm";
+    toast(`Ukuran nota: ${name}`);
+    return;
+  }
   const pay = e.target.closest("[data-pay]");
   if (pay) {
     pay.disabled = true;
@@ -489,17 +498,34 @@ document.addEventListener("click", async (e) => {
   }
 });
 
-// ---------- CETAK NOTA (printer struk 58/80 mm lewat dialog cetak browser) ----------
-const notaMm = () => (Number(store.get("fc_nota_mm", 58)) === 80 ? 80 : 58);
+// ---------- CETAK NOTA (printer struk 58/80 mm & Japanese Envelope lewat dialog cetak browser) ----------
+const NOTA_MODES = ["58", "80", "env"];
+const notaMode = () => {
+  const v = String(store.get("fc_nota_mode") || store.get("fc_nota_mm") || "58");
+  return NOTA_MODES.includes(v) ? v : (v === "80" ? "80" : "58");
+};
+const notaLabel = () => {
+  const m = notaMode();
+  if (m === "env") return "Jpn Env";
+  return m + " mm";
+};
+const notaMm = () => (notaMode() === "80" ? 80 : (notaMode() === "env" ? 90 : 58));
+
 function printNota(o) {
   let el = document.getElementById("receipt");
   if (!el) { el = document.createElement("div"); el.id = "receipt"; document.body.appendChild(el); }
-  const mm = notaMm();
-  el.className = "w" + mm;
+  const mode = notaMode();
+  el.className = "w" + mode;
   // @page tidak bisa memakai var(), jadi ukuran kertas disuntik lewat <style> khusus
   let ps = document.getElementById("pageSize");
   if (!ps) { ps = document.createElement("style"); ps.id = "pageSize"; document.head.appendChild(ps); }
-  ps.textContent = `@media print { @page { size: ${mm}mm auto; margin: 0; } }`;
+  if (mode === "env") {
+    // Ukuran Japanese Envelope Chou #4 (90 x 205 mm)
+    ps.textContent = `@media print { @page { size: 90mm 205mm; margin: 3mm; } }`;
+  } else {
+    const mm = mode === "80" ? 80 : 58;
+    ps.textContent = `@media print { @page { size: ${mm}mm auto; margin: 0; } }`;
+  }
 
   const d = new Date(o.created_at);
   const tgl = d.toLocaleDateString("id-ID", { day: "2-digit", month: "short", year: "numeric" });
