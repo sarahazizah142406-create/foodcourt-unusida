@@ -693,7 +693,10 @@ function presetRange(p) {
 
 function viewLaporan() {
   content().innerHTML = `
-    <div class="section-title" style="margin-top:0"><h2>Laporan pendapatan</h2></div>
+    <div class="section-title" style="margin-top:0">
+      <h2>Laporan pendapatan</h2>
+      <button class="btn ghost sm" id="repCsv">${icon("download", "sm")}Unduh CSV</button>
+    </div>
     <p class="hint" style="margin-bottom:12px">Hanya pesanan yang sudah ditandai <b>lunas</b> yang dihitung.</p>
     <div class="chips" id="presets">${[["hari", "Hari ini"], ["7", "7 hari"], ["30", "30 hari"], ["bulan", "Bulan ini"], ["custom", "Pilih tanggal"]]
       .map(([k, l]) => `<button class="chip ${laporanState.preset === k ? "active" : ""}" data-p="${k}">${l}</button>`).join("")}</div>
@@ -710,7 +713,50 @@ function viewLaporan() {
     viewLaporan();
   });
   const ap = $("#apply"); if (ap) ap.addEventListener("click", () => { laporanState.dari = $("#d1").value; laporanState.sampai = $("#d2").value; loadLaporan(); });
+  const rc = $("#repCsv"); if (rc) rc.addEventListener("click", () => exportLaporanKantin(state.laporanData));
   loadLaporan();
+}
+
+function exportLaporanKantin(r) {
+  if (!r) { toast("Data laporan belum selesai dimuat", "error"); return; }
+  const namaKantin = state.me?.nama_kantin || "Kantin";
+  const lines = [
+    "sep=;",
+    `"LAPORAN PENDAPATAN - ${String(namaKantin).toUpperCase()}"`,
+    `"Periode";"${laporanState.dari} s/d ${laporanState.sampai}"`,
+    `"Tanggal Unduh";"${new Date().toLocaleString('id-ID')}"`,
+    `"Total Pendapatan Lunas";"${rupiah(r.total_pendapatan || 0)}";"(${r.jumlah_order || 0} transaksi)"`,
+    `"Pendapatan via QRIS (Disetor Admin)";"${rupiah(r.total_qris || 0)}"`,
+    `"Pendapatan via Cash (Dipegang Kantin)";"${rupiah(r.total_cash || 0)}"`,
+    "",
+    `"RINCIAN PENDAPATAN HARIAN"`,
+    `"Tanggal";"Total Pendapatan (Rp)"`
+  ];
+  if (r.harian && r.harian.length) {
+    r.harian.forEach((h) => {
+      lines.push(`"${tanggal(h.tanggal + 'T00:00:00')}";${Number(h.total) || 0}`);
+    });
+  } else {
+    lines.push(`"Belum ada pendapatan pada rentang ini";0`);
+  }
+  lines.push("");
+  lines.push(`"MENU TERLARIS"`);
+  lines.push(`"Peringkat";"Nama Menu";"Jumlah Terjual (Porsi)";"Total Omzet (Rp)"`);
+  if (r.menu_terlaris && r.menu_terlaris.length) {
+    r.menu_terlaris.forEach((m, idx) => {
+      lines.push(`${idx + 1};"${String(m.nama_menu || '').replace(/"/g, '""')}";${Number(m.qty) || 0};${Number(m.omzet) || 0}`);
+    });
+  } else {
+    lines.push(`"-";"Belum ada data penjualan";0;0`);
+  }
+
+  const csv = lines.join("\r\n");
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob(["\ufeff" + csv], { type: "text/csv;charset=utf-8" }));
+  a.download = `laporan_${namaKantin.toLowerCase().replace(/\s+/g, '_')}_${laporanState.dari}_${laporanState.sampai}.csv`;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  toast("Laporan CSV berhasil diunduh", "success");
 }
 
 async function loadLaporan() {
@@ -718,6 +764,7 @@ async function loadLaporan() {
   if (laporanState.dari > laporanState.sampai) { el.innerHTML = `<div class="form-error">Tanggal "Dari" tidak boleh setelah "Sampai".</div>`; return; }
   try {
     const r = await tokenCall(`/api/kasir/laporan?dari=${laporanState.dari}&sampai=${laporanState.sampai}`);
+    state.laporanData = r;
     const max = Math.max(1, ...r.harian.map((h) => h.total));
     el.innerHTML = `
       <div class="stats">

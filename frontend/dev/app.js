@@ -291,26 +291,119 @@ function drawRekap(d) {
 }
 
 function exportRekap(d) {
-  if (!d) return;
-  const head = ["Kantin", "Order QRIS", "Total QRIS", "Order Cash", "Total Cash", "Total Pendapatan", "Sisa QRIS Disetor", "Status Setoran"];
-  const body = d.kantin.map((k) => [
-    k.nama_kantin,
-    k.qris_order,
-    k.qris_total,
-    k.cash_order,
-    k.cash_total,
-    k.total,
-    k.sisa_qris || 0,
-    k.qris_total > 0 ? (k.sisa_qris > 0 ? "Belum disetor" : "Sudah disetor") : "-"
-  ]);
-  const t = d.total;
-  const rows = [head, ...body, ["TOTAL", t.qris_order, t.qris_total, t.cash_order, t.cash_total, t.total, t.sisa_qris || 0, ""]];
-  const csv = rows.map((r) => r.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(",")).join("\n");
+  if (!d || !d.kantin) return;
+  const t = d.total || {};
+  const lines = [
+    "sep=;",
+    `"LAPORAN REKAPITULASI PENJUALAN - FOOD COURT UNUSIDA"`,
+    `"Periode";"${d.dari} s/d ${d.sampai}"`,
+    `"Tanggal Unduh";"${new Date().toLocaleString('id-ID')}"`,
+    `"Total Penjualan Lunas";"${rupiah(t.total || 0)}";"(${t.jumlah_order || 0} transaksi)"`,
+    `"Via QRIS (Disetor ke Kantin)";"${rupiah(t.qris_total || 0)}";"(${t.qris_order || 0} transaksi)"`,
+    `"Via Cash (Dipegang Kantin)";"${rupiah(t.cash_total || 0)}";"(${t.cash_order || 0} transaksi)"`,
+    `"Sisa QRIS Belum Disetor";"${rupiah(t.sisa_qris || 0)}"`,
+    ""
+  ];
+
+  const headers = [
+    "No",
+    "Nama Kantin",
+    "Order QRIS",
+    "Total QRIS (Rp)",
+    "Order Tunai",
+    "Total Tunai (Rp)",
+    "Total Order",
+    "Total Pendapatan (Rp)",
+    "Sisa QRIS Belum Disetor (Rp)",
+    "Status Setoran"
+  ];
+  lines.push(headers.map((h) => `"${h}"`).join(";"));
+
+  d.kantin.forEach((k, idx) => {
+    const sisa = Number(k.sisa_qris) || 0;
+    const qTotal = Number(k.qris_total) || 0;
+    const statusSetor = qTotal > 0 ? (sisa > 0 ? "Belum disetor" : "Sudah disetor") : "Tidak ada QRIS";
+    const row = [
+      idx + 1,
+      `"${String(k.nama_kantin || '').replace(/"/g, '""')}"`,
+      Number(k.qris_order) || 0,
+      qTotal,
+      Number(k.cash_order) || 0,
+      Number(k.cash_total) || 0,
+      Number(k.jumlah_order) || 0,
+      Number(k.total) || 0,
+      sisa,
+      `"${statusSetor}"`
+    ];
+    lines.push(row.join(";"));
+  });
+
+  // Baris Total
+  const totalRow = [
+    "",
+    `"TOTAL KESELURUHAN"`,
+    Number(t.qris_order) || 0,
+    Number(t.qris_total) || 0,
+    Number(t.cash_order) || 0,
+    Number(t.cash_total) || 0,
+    Number(t.jumlah_order) || 0,
+    Number(t.total) || 0,
+    Number(t.sisa_qris) || 0,
+    `""`
+  ];
+  lines.push(totalRow.join(";"));
+
+  const csv = lines.join("\r\n");
   const a = document.createElement("a");
   a.href = URL.createObjectURL(new Blob(["\ufeff" + csv], { type: "text/csv;charset=utf-8" }));
   a.download = `rekap-pembayaran_${d.dari}_${d.sampai}.csv`;
   document.body.appendChild(a); a.click(); a.remove();
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+
+async function exportRekapDetailCsv(tenantId, namaKantin) {
+  const R = state.rekap;
+  try {
+    toast("Menyiapkan CSV rincian...");
+    const d = await call(`/api/dev/rekap/${tenantId}?dari=${R.dari}&sampai=${R.sampai}&limit=1000`);
+    if (!d || !d.rows || !d.rows.length) {
+      toast("Tidak ada data transaksi untuk diunduh", "error");
+      return;
+    }
+    const lines = [
+      "sep=;",
+      `"RINCIAN TRANSAKSI - ${String(namaKantin || '').toUpperCase()}"`,
+      `"Periode";"${R.dari} s/d ${R.sampai}"`,
+      `"Tanggal Unduh";"${new Date().toLocaleString('id-ID')}"`,
+      `"Total Transaksi";"${d.jumlah} transaksi"`,
+      `"Total Nominal";"${rupiah(d.nominal || 0)}"`,
+      "",
+      `"No";"Nomor Antrian";"Nomor Meja";"Tanggal & Waktu";"Metode Pembayaran";"Subtotal (Rp)"`
+    ];
+    d.rows.forEach((r, idx) => {
+      const tgl = new Date(r.created_at).toLocaleString("id-ID", {
+        day: "2-digit", month: "2-digit", year: "numeric",
+        hour: "2-digit", minute: "2-digit"
+      });
+      lines.push([
+        idx + 1,
+        `"#${r.nomor_antrian}"`,
+        `"Meja ${r.nomor_meja}"`,
+        `"${tgl}"`,
+        `"${r.metode_bayar === 'qris' ? 'QRIS' : 'Tunai'}"`,
+        Number(r.subtotal) || 0
+      ].join(";"));
+    });
+    const csv = lines.join("\r\n");
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob(["\ufeff" + csv], { type: "text/csv;charset=utf-8" }));
+    a.download = `rincian_${String(namaKantin || '').toLowerCase().replace(/\s+/g, '_')}_${R.dari}_${R.sampai}.csv`;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    toast("CSV rincian berhasil diunduh", "success");
+  } catch (err) {
+    fail(err, "Gagal mengunduh CSV rincian");
+  }
 }
 
 async function rekapDetail(tenantId) {
@@ -320,11 +413,12 @@ async function rekapDetail(tenantId) {
   let metode = "";
   const s = openSheet(`
     <div class="sheet-head"><div><h3>${esc(k.nama_kantin)}</h3><p>${R.dari === R.sampai ? R.dari : `${R.dari} s/d ${R.sampai}`}</p></div>
-      <button class="btn ghost icon sm" data-close aria-label="Tutup">${icon("x")}</button></div>
+      <div style="display:flex;gap:6px;align-items:center"><button class="btn ghost sm" id="rdCsv" title="Unduh CSV rincian kantin ini">${icon("download", "sm")}CSV</button><button class="btn ghost icon sm" data-close aria-label="Tutup">${icon("x")}</button></div></div>
     <div class="chips" id="rdChips">
       <button class="chip active" data-m="">Semua</button><button class="chip" data-m="qris">QRIS</button><button class="chip" data-m="cash">Cash</button>
     </div>
     <div id="rdList" style="margin-top:12px"></div>`);
+  $("#rdCsv", s.el).addEventListener("click", () => exportRekapDetailCsv(tenantId, k.nama_kantin));
   const PAGE = 50;
   let offset = 0;
   const rowHtml = (r) => `
