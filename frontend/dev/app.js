@@ -232,7 +232,7 @@ async function viewRekap() {
   if (!state.rekap) { const [dari, sampai] = rangeOf("hari"); state.rekap = { preset: "hari", dari, sampai }; }
   const R = state.rekap;
   content().innerHTML = `
-    <div class="section-title" style="margin-top:0"><h2>Rekap pembayaran</h2><div style="display:flex;gap:8px"><button class="btn ghost" id="rkPrint">${icon("printer", "sm")}Cetak</button><button class="btn ghost" id="rkCsv">${icon("download", "sm")}CSV</button></div></div>
+    <div class="section-title" style="margin-top:0"><h2>Rekap pembayaran</h2><div style="display:flex;gap:8px"><button class="btn ghost" id="rkPrint">${icon("printer", "sm")}Cetak</button><button class="btn ghost" id="rkExcel" title="Unduh Excel (.xls) dengan warna & kolom rapi">${icon("download", "sm")}Excel</button><button class="btn ghost" id="rkCsv" title="Unduh format CSV">${icon("download", "sm")}CSV</button></div></div>
     <div class="chips" id="rkChips">${PRESETS.map(([k, l]) => `<button class="chip ${R.preset === k ? "active" : ""}" data-rk="${k}">${l}</button>`).join("")}</div>
     <div class="rk-dates" ${R.preset === "custom" ? "" : "hidden"}>
       <div class="field"><label for="rk1">Dari</label><input class="input" type="date" id="rk1" value="${R.dari}"></div>
@@ -258,7 +258,8 @@ async function viewRekap() {
   });
   const onDate = () => { const a = $("#rk1").value, z = $("#rk2").value; if (a && z && a <= z) { R.dari = a; R.sampai = z; load(); } };
   $("#rk1").addEventListener("change", onDate); $("#rk2").addEventListener("change", onDate);
-  $("#rkCsv").addEventListener("click", () => exportRekap(state.rekapData));
+  $("#rkCsv").addEventListener("click", () => exportRekapCsv(state.rekapData));
+  $("#rkExcel").addEventListener("click", () => exportRekapExcel(state.rekapData));
   $("#rkPrint").addEventListener("click", () => printRekap(state.rekapData));
   load();
 }
@@ -290,73 +291,140 @@ function drawRekap(d) {
     <p class="hint" style="margin:8px 2px">Ketuk satu kantin untuk melihat rincian transaksinya. Hanya pesanan yang sudah lunas yang dihitung.</p>`;
 }
 
-function exportRekap(d) {
+function exportRekapCsv(d) {
   if (!d || !d.kantin) return;
   const t = d.total || {};
+  const tglUnduh = new Date().toLocaleString("id-ID");
   const lines = [
     "sep=;",
-    `"LAPORAN REKAPITULASI PENJUALAN - FOOD COURT UNUSIDA"`,
-    `"Periode";"${d.dari} s/d ${d.sampai}"`,
-    `"Tanggal Unduh";"${new Date().toLocaleString('id-ID')}"`,
-    `"Total Penjualan Lunas";"${rupiah(t.total || 0)}";"(${t.jumlah_order || 0} transaksi)"`,
-    `"Via QRIS (Disetor ke Kantin)";"${rupiah(t.qris_total || 0)}";"(${t.qris_order || 0} transaksi)"`,
-    `"Via Cash (Dipegang Kantin)";"${rupiah(t.cash_total || 0)}";"(${t.cash_order || 0} transaksi)"`,
-    `"Sisa QRIS Belum Disetor";"${rupiah(t.sisa_qris || 0)}"`,
-    ""
+    `"LAPORAN REKAPITULASI PENJUALAN - FOOD COURT UNUSIDA (Periode: ${d.dari} s/d ${d.sampai})"`,
+    `"Total Penjualan: ${rupiah(t.total || 0)} (${t.jumlah_order || 0} order) | Via QRIS: ${rupiah(t.qris_total || 0)} | Via Cash: ${rupiah(t.cash_total || 0)} | Diunduh: ${tglUnduh}"`,
+    "",
+    '"No";"Kantin";"Order QRIS";"Total QRIS";"Order Tunai";"Total Tunai";"Total Order";"Total Omzet";"Sisa QRIS";"Status Setoran"'
   ];
-
-  const headers = [
-    "No",
-    "Nama Kantin",
-    "Order QRIS",
-    "Total QRIS (Rp)",
-    "Order Tunai",
-    "Total Tunai (Rp)",
-    "Total Order",
-    "Total Pendapatan (Rp)",
-    "Sisa QRIS Belum Disetor (Rp)",
-    "Status Setoran"
-  ];
-  lines.push(headers.map((h) => `"${h}"`).join(";"));
 
   d.kantin.forEach((k, idx) => {
     const sisa = Number(k.sisa_qris) || 0;
     const qTotal = Number(k.qris_total) || 0;
     const statusSetor = qTotal > 0 ? (sisa > 0 ? "Belum disetor" : "Sudah disetor") : "Tidak ada QRIS";
-    const row = [
+    lines.push([
       idx + 1,
       `"${String(k.nama_kantin || '').replace(/"/g, '""')}"`,
       Number(k.qris_order) || 0,
-      qTotal,
+      `"${rupiah(qTotal)}"`,
       Number(k.cash_order) || 0,
-      Number(k.cash_total) || 0,
+      `"${rupiah(Number(k.cash_total) || 0)}"`,
       Number(k.jumlah_order) || 0,
-      Number(k.total) || 0,
-      sisa,
+      `"${rupiah(Number(k.total) || 0)}"`,
+      `"${rupiah(sisa)}"`,
       `"${statusSetor}"`
-    ];
-    lines.push(row.join(";"));
+    ].join(";"));
   });
 
   // Baris Total
-  const totalRow = [
+  lines.push([
     "",
     `"TOTAL KESELURUHAN"`,
     Number(t.qris_order) || 0,
-    Number(t.qris_total) || 0,
+    `"${rupiah(Number(t.qris_total) || 0)}"`,
     Number(t.cash_order) || 0,
-    Number(t.cash_total) || 0,
+    `"${rupiah(Number(t.cash_total) || 0)}"`,
     Number(t.jumlah_order) || 0,
-    Number(t.total) || 0,
-    Number(t.sisa_qris) || 0,
+    `"${rupiah(Number(t.total) || 0)}"`,
+    `"${rupiah(Number(t.sisa_qris) || 0)}"`,
     `""`
-  ];
-  lines.push(totalRow.join(";"));
+  ].join(";"));
 
   const csv = lines.join("\r\n");
   const a = document.createElement("a");
   a.href = URL.createObjectURL(new Blob(["\ufeff" + csv], { type: "text/csv;charset=utf-8" }));
   a.download = `rekap-pembayaran_${d.dari}_${d.sampai}.csv`;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+
+function exportRekapExcel(d) {
+  if (!d || !d.kantin) return;
+  const t = d.total || {};
+  const tglUnduh = new Date().toLocaleString("id-ID");
+  const rows = d.kantin.map((k, idx) => {
+    const sisa = Number(k.sisa_qris) || 0;
+    const qTotal = Number(k.qris_total) || 0;
+    const statusSetor = qTotal > 0 ? (sisa > 0 ? "Belum disetor" : "Sudah disetor") : "Tidak ada QRIS";
+    return `
+      <tr>
+        <td style="text-align:center">${idx + 1}</td>
+        <td><b>${esc(k.nama_kantin)}</b></td>
+        <td style="text-align:center">${k.qris_order || 0}</td>
+        <td style="text-align:right">${rupiah(qTotal)}</td>
+        <td style="text-align:center">${k.cash_order || 0}</td>
+        <td style="text-align:right">${rupiah(k.cash_total || 0)}</td>
+        <td style="text-align:center"><b>${k.jumlah_order || 0}</b></td>
+        <td style="text-align:right"><b>${rupiah(k.total || 0)}</b></td>
+        <td style="text-align:right">${rupiah(sisa)}</td>
+        <td style="text-align:center">${esc(statusSetor)}</td>
+      </tr>`;
+  }).join("");
+
+  const html = `
+    <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">
+    <head>
+      <meta charset="utf-8">
+      <!--[if gte mso 9]><xml><x:ExcelWorkbook><x:ExcelWorksheets><x:ExcelWorksheet><x:Name>Rekap Pembayaran</x:Name><x:WorksheetOptions><x:DisplayGridlines/></x:WorksheetOptions></x:ExcelWorksheet></x:ExcelWorksheets></x:ExcelWorkbook></xml><![endif]-->
+      <style>
+        body, table { font-family: Calibri, 'Segoe UI', Arial, sans-serif; font-size: 11pt; color: #222; }
+        .title { font-size: 15pt; font-weight: bold; color: #1B5E20; padding: 6px 0; }
+        .meta { color: #555555; font-size: 10.5pt; padding: 2px 0; }
+        th { background-color: #1B5E20; color: #FFFFFF; font-weight: bold; text-align: center; border: 1px solid #777; padding: 8px 12px; }
+        td { border: 1px solid #DDD; padding: 6px 10px; }
+        .tot { background-color: #E8F5E9; font-weight: bold; border-top: 2px solid #1B5E20; border-bottom: 2px solid #1B5E20; }
+      </style>
+    </head>
+    <body>
+      <table>
+        <tr><td colspan="10" class="title">LAPORAN REKAPITULASI PENJUALAN - FOOD COURT UNUSIDA</td></tr>
+        <tr><td colspan="10" class="meta">Periode: <b>${esc(d.dari)} s/d ${esc(d.sampai)}</b> &nbsp;|&nbsp; Tanggal Unduh: ${esc(tglUnduh)}</td></tr>
+        <tr><td colspan="10" class="meta">Total Penjualan: <b>${rupiah(t.total || 0)}</b> (${t.jumlah_order || 0} order) &nbsp;|&nbsp; QRIS: <b>${rupiah(t.qris_total || 0)}</b> &nbsp;|&nbsp; Cash: <b>${rupiah(t.cash_total || 0)}</b></td></tr>
+        <tr><td colspan="10"></td></tr>
+        <thead>
+          <tr>
+            <th style="width:45px">No</th>
+            <th style="width:200px">Kantin</th>
+            <th style="width:100px">Order QRIS</th>
+            <th style="width:130px">Total QRIS</th>
+            <th style="width:100px">Order Tunai</th>
+            <th style="width:130px">Total Tunai</th>
+            <th style="width:100px">Total Order</th>
+            <th style="width:140px">Total Omzet</th>
+            <th style="width:140px">Sisa QRIS</th>
+            <th style="width:130px">Status Setoran</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rows}
+        </tbody>
+        <tfoot>
+          <tr class="tot">
+            <td style="text-align:center"></td>
+            <td>TOTAL KESELURUHAN</td>
+            <td style="text-align:center">${t.qris_order || 0}</td>
+            <td style="text-align:right">${rupiah(t.qris_total || 0)}</td>
+            <td style="text-align:center">${t.cash_order || 0}</td>
+            <td style="text-align:right">${rupiah(t.cash_total || 0)}</td>
+            <td style="text-align:center">${t.jumlah_order || 0}</td>
+            <td style="text-align:right">${rupiah(t.total || 0)}</td>
+            <td style="text-align:right">${rupiah(t.sisa_qris || 0)}</td>
+            <td></td>
+          </tr>
+        </tfoot>
+      </table>
+    </body>
+    </html>`;
+
+  const blob = new Blob(["\ufeff" + html], { type: "application/vnd.ms-excel;charset=utf-8" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = `rekap-pembayaran_${d.dari}_${d.sampai}.xls`;
   document.body.appendChild(a); a.click(); a.remove();
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 }
@@ -372,13 +440,10 @@ async function exportRekapDetailCsv(tenantId, namaKantin) {
     }
     const lines = [
       "sep=;",
-      `"RINCIAN TRANSAKSI - ${String(namaKantin || '').toUpperCase()}"`,
-      `"Periode";"${R.dari} s/d ${R.sampai}"`,
-      `"Tanggal Unduh";"${new Date().toLocaleString('id-ID')}"`,
-      `"Total Transaksi";"${d.jumlah} transaksi"`,
-      `"Total Nominal";"${rupiah(d.nominal || 0)}"`,
+      `"RINCIAN TRANSAKSI - ${String(namaKantin || '').toUpperCase()} (Periode: ${R.dari} s/d ${R.sampai})"`,
+      `"Total Transaksi: ${d.jumlah} order | Total Nominal: ${rupiah(d.nominal || 0)} | Tanggal Unduh: ${new Date().toLocaleString('id-ID')}"`,
       "",
-      `"No";"Nomor Antrian";"Nomor Meja";"Tanggal & Waktu";"Metode Pembayaran";"Subtotal (Rp)"`
+      '"No";"Nomor Antrian";"Nomor Meja";"Tanggal & Waktu";"Metode Pembayaran";"Subtotal"'
     ];
     d.rows.forEach((r, idx) => {
       const tgl = new Date(r.created_at).toLocaleString("id-ID", {
@@ -391,7 +456,7 @@ async function exportRekapDetailCsv(tenantId, namaKantin) {
         `"Meja ${r.nomor_meja}"`,
         `"${tgl}"`,
         `"${r.metode_bayar === 'qris' ? 'QRIS' : 'Tunai'}"`,
-        Number(r.subtotal) || 0
+        `"${rupiah(Number(r.subtotal) || 0)}"`
       ].join(";"));
     });
     const csv = lines.join("\r\n");
@@ -406,6 +471,87 @@ async function exportRekapDetailCsv(tenantId, namaKantin) {
   }
 }
 
+async function exportRekapDetailExcel(tenantId, namaKantin) {
+  const R = state.rekap;
+  try {
+    toast("Menyiapkan Excel rincian...");
+    const d = await call(`/api/dev/rekap/${tenantId}?dari=${R.dari}&sampai=${R.sampai}&limit=1000`);
+    if (!d || !d.rows || !d.rows.length) {
+      toast("Tidak ada data transaksi untuk diunduh", "error");
+      return;
+    }
+    const tglUnduh = new Date().toLocaleString("id-ID");
+    const rows = d.rows.map((r, idx) => {
+      const tgl = new Date(r.created_at).toLocaleString("id-ID", {
+        day: "2-digit", month: "2-digit", year: "numeric",
+        hour: "2-digit", minute: "2-digit"
+      });
+      return `
+        <tr>
+          <td style="text-align:center">${idx + 1}</td>
+          <td style="text-align:center"><b>#${esc(r.nomor_antrian)}</b></td>
+          <td style="text-align:center">Meja ${esc(r.nomor_meja)}</td>
+          <td style="text-align:center">${esc(tgl)}</td>
+          <td style="text-align:center">${r.metode_bayar === 'qris' ? 'QRIS' : 'Tunai'}</td>
+          <td style="text-align:right"><b>${rupiah(Number(r.subtotal) || 0)}</b></td>
+        </tr>`;
+    }).join("");
+
+    const html = `
+      <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">
+      <head>
+        <meta charset="utf-8">
+        <!--[if gte mso 9]><xml><x:ExcelWorkbook><x:ExcelWorksheets><x:ExcelWorksheet><x:Name>Rincian Transaksi</x:Name><x:WorksheetOptions><x:DisplayGridlines/></x:WorksheetOptions></x:ExcelWorksheet></x:ExcelWorksheets></x:ExcelWorkbook></xml><![endif]-->
+        <style>
+          body, table { font-family: Calibri, 'Segoe UI', Arial, sans-serif; font-size: 11pt; color: #222; }
+          .title { font-size: 15pt; font-weight: bold; color: #1B5E20; padding: 6px 0; }
+          .meta { color: #555555; font-size: 10.5pt; padding: 2px 0; }
+          th { background-color: #1B5E20; color: #FFFFFF; font-weight: bold; text-align: center; border: 1px solid #777; padding: 8px 12px; }
+          td { border: 1px solid #DDD; padding: 6px 10px; }
+          .tot { background-color: #E8F5E9; font-weight: bold; border-top: 2px solid #1B5E20; border-bottom: 2px solid #1B5E20; }
+        </style>
+      </head>
+      <body>
+        <table>
+          <tr><td colspan="6" class="title">RINCIAN TRANSAKSI - ${esc(String(namaKantin || '').toUpperCase())}</td></tr>
+          <tr><td colspan="6" class="meta">Periode: <b>${esc(R.dari)} s/d ${esc(R.sampai)}</b> &nbsp;|&nbsp; Tanggal Unduh: ${esc(tglUnduh)}</td></tr>
+          <tr><td colspan="6" class="meta">Total Transaksi: <b>${d.jumlah} order</b> &nbsp;|&nbsp; Total Nominal: <b>${rupiah(d.nominal || 0)}</b></td></tr>
+          <tr><td colspan="6"></td></tr>
+          <thead>
+            <tr>
+              <th style="width:45px">No</th>
+              <th style="width:120px">No Antrian</th>
+              <th style="width:100px">Meja</th>
+              <th style="width:160px">Tanggal & Waktu</th>
+              <th style="width:110px">Pembayaran</th>
+              <th style="width:140px">Subtotal</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rows}
+          </tbody>
+          <tfoot>
+            <tr class="tot">
+              <td colspan="5" style="text-align:right">TOTAL NOMINAL:</td>
+              <td style="text-align:right">${rupiah(d.nominal || 0)}</td>
+            </tr>
+          </tfoot>
+        </table>
+      </body>
+      </html>`;
+
+    const blob = new Blob(["\ufeff" + html], { type: "application/vnd.ms-excel;charset=utf-8" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `rincian_${String(namaKantin || '').toLowerCase().replace(/\s+/g, '_')}_${R.dari}_${R.sampai}.xls`;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    toast("Excel rincian berhasil diunduh", "success");
+  } catch (err) {
+    fail(err, "Gagal mengunduh Excel rincian");
+  }
+}
+
 async function rekapDetail(tenantId) {
   const k = state.rekapData?.kantin.find((x) => x.tenant_id === tenantId);
   if (!k) return;
@@ -413,12 +559,13 @@ async function rekapDetail(tenantId) {
   let metode = "";
   const s = openSheet(`
     <div class="sheet-head"><div><h3>${esc(k.nama_kantin)}</h3><p>${R.dari === R.sampai ? R.dari : `${R.dari} s/d ${R.sampai}`}</p></div>
-      <div style="display:flex;gap:6px;align-items:center"><button class="btn ghost sm" id="rdCsv" title="Unduh CSV rincian kantin ini">${icon("download", "sm")}CSV</button><button class="btn ghost icon sm" data-close aria-label="Tutup">${icon("x")}</button></div></div>
+      <div style="display:flex;gap:6px;align-items:center"><button class="btn ghost sm" id="rdExcel" title="Unduh Excel (.xls) rincian kantin ini">${icon("download", "sm")}Excel</button><button class="btn ghost sm" id="rdCsv" title="Unduh CSV rincian kantin ini">${icon("download", "sm")}CSV</button><button class="btn ghost icon sm" data-close aria-label="Tutup">${icon("x")}</button></div></div>
     <div class="chips" id="rdChips">
       <button class="chip active" data-m="">Semua</button><button class="chip" data-m="qris">QRIS</button><button class="chip" data-m="cash">Cash</button>
     </div>
     <div id="rdList" style="margin-top:12px"></div>`);
   $("#rdCsv", s.el).addEventListener("click", () => exportRekapDetailCsv(tenantId, k.nama_kantin));
+  $("#rdExcel", s.el).addEventListener("click", () => exportRekapDetailExcel(tenantId, k.nama_kantin));
   const PAGE = 50;
   let offset = 0;
   const rowHtml = (r) => `

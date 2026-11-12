@@ -695,7 +695,10 @@ function viewLaporan() {
   content().innerHTML = `
     <div class="section-title" style="margin-top:0">
       <h2>Laporan pendapatan</h2>
-      <button class="btn ghost sm" id="repCsv">${icon("download", "sm")}Unduh CSV</button>
+      <div style="display:flex;gap:6px">
+        <button class="btn ghost sm" id="repExcel">${icon("download", "sm")}Excel</button>
+        <button class="btn ghost sm" id="repCsv">${icon("download", "sm")}CSV</button>
+      </div>
     </div>
     <p class="hint" style="margin-bottom:12px">Hanya pesanan yang sudah ditandai <b>lunas</b> yang dihitung.</p>
     <div class="chips" id="presets">${[["hari", "Hari ini"], ["7", "7 hari"], ["30", "30 hari"], ["bulan", "Bulan ini"], ["custom", "Pilih tanggal"]]
@@ -713,6 +716,7 @@ function viewLaporan() {
     viewLaporan();
   });
   const ap = $("#apply"); if (ap) ap.addEventListener("click", () => { laporanState.dari = $("#d1").value; laporanState.sampai = $("#d2").value; loadLaporan(); });
+  const re = $("#repExcel"); if (re) re.addEventListener("click", () => exportLaporanExcel(state.laporanData));
   const rc = $("#repCsv"); if (rc) rc.addEventListener("click", () => exportLaporanKantin(state.laporanData));
   loadLaporan();
 }
@@ -720,34 +724,32 @@ function viewLaporan() {
 function exportLaporanKantin(r) {
   if (!r) { toast("Data laporan belum selesai dimuat", "error"); return; }
   const namaKantin = state.me?.nama_kantin || "Kantin";
+  const tglUnduh = new Date().toLocaleString("id-ID");
   const lines = [
     "sep=;",
     `"LAPORAN PENDAPATAN - ${String(namaKantin).toUpperCase()}"`,
-    `"Periode";"${laporanState.dari} s/d ${laporanState.sampai}"`,
-    `"Tanggal Unduh";"${new Date().toLocaleString('id-ID')}"`,
-    `"Total Pendapatan Lunas";"${rupiah(r.total_pendapatan || 0)}";"(${r.jumlah_order || 0} transaksi)"`,
-    `"Pendapatan via QRIS (Disetor Admin)";"${rupiah(r.total_qris || 0)}"`,
-    `"Pendapatan via Cash (Dipegang Kantin)";"${rupiah(r.total_cash || 0)}"`,
+    `"Periode: ${laporanState.dari} s/d ${laporanState.sampai} | Unduh: ${tglUnduh}"`,
+    `"Total Pendapatan: ${rupiah(r.total_pendapatan || 0)} (${r.jumlah_order || 0} order) | QRIS: ${rupiah(r.total_qris || 0)} | Tunai: ${rupiah(r.total_cash || 0)}"`,
     "",
     `"RINCIAN PENDAPATAN HARIAN"`,
-    `"Tanggal";"Total Pendapatan (Rp)"`
+    `"No";"Tanggal";"Total Pendapatan"`
   ];
   if (r.harian && r.harian.length) {
-    r.harian.forEach((h) => {
-      lines.push(`"${tanggal(h.tanggal + 'T00:00:00')}";${Number(h.total) || 0}`);
+    r.harian.forEach((h, i) => {
+      lines.push(`${i + 1};"${tanggal(h.tanggal + 'T00:00:00')}";"${rupiah(h.total || 0)}"`);
     });
   } else {
-    lines.push(`"Belum ada pendapatan pada rentang ini";0`);
+    lines.push(`1;"Belum ada pendapatan pada rentang ini";"Rp 0"`);
   }
   lines.push("");
   lines.push(`"MENU TERLARIS"`);
-  lines.push(`"Peringkat";"Nama Menu";"Jumlah Terjual (Porsi)";"Total Omzet (Rp)"`);
+  lines.push(`"Peringkat";"Nama Menu";"Jumlah Terjual (Porsi)";"Total Omzet"`);
   if (r.menu_terlaris && r.menu_terlaris.length) {
     r.menu_terlaris.forEach((m, idx) => {
-      lines.push(`${idx + 1};"${String(m.nama_menu || '').replace(/"/g, '""')}";${Number(m.qty) || 0};${Number(m.omzet) || 0}`);
+      lines.push(`${idx + 1};"${String(m.nama_menu || '').replace(/"/g, '""')}";${Number(m.qty) || 0};"${rupiah(m.omzet || 0)}"`);
     });
   } else {
-    lines.push(`"-";"Belum ada data penjualan";0;0`);
+    lines.push(`"-";"Belum ada data penjualan";0;"Rp 0"`);
   }
 
   const csv = lines.join("\r\n");
@@ -757,6 +759,97 @@ function exportLaporanKantin(r) {
   document.body.appendChild(a); a.click(); a.remove();
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
   toast("Laporan CSV berhasil diunduh", "success");
+}
+
+function exportLaporanExcel(r) {
+  if (!r) { toast("Data laporan belum selesai dimuat", "error"); return; }
+  const namaKantin = state.me?.nama_kantin || "Kantin";
+  const tglUnduh = new Date().toLocaleString("id-ID");
+
+  const harianRows = (r.harian && r.harian.length)
+    ? r.harian.map((h, i) => `
+      <tr>
+        <td style="text-align:center">${i + 1}</td>
+        <td>${esc(tanggal(h.tanggal + 'T00:00:00'))}</td>
+        <td style="text-align:right"><b>${rupiah(h.total || 0)}</b></td>
+      </tr>`).join("")
+    : `<tr><td colspan="3" style="text-align:center;color:#888">Belum ada data pendapatan pada periode ini</td></tr>`;
+
+  const menuRows = (r.menu_terlaris && r.menu_terlaris.length)
+    ? r.menu_terlaris.map((m, i) => `
+      <tr>
+        <td style="text-align:center">${i + 1}</td>
+        <td><b>${esc(m.nama_menu)}</b></td>
+        <td style="text-align:center">${m.qty || 0} porsi</td>
+        <td style="text-align:right"><b>${rupiah(m.omzet || 0)}</b></td>
+      </tr>`).join("")
+    : `<tr><td colspan="4" style="text-align:center;color:#888">Belum ada menu yang terjual</td></tr>`;
+
+  const html = `
+    <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">
+    <head>
+      <meta charset="utf-8">
+      <!--[if gte mso 9]><xml><x:ExcelWorkbook><x:ExcelWorksheets><x:ExcelWorksheet><x:Name>Laporan Kantin</x:Name><x:WorksheetOptions><x:DisplayGridlines/></x:WorksheetOptions></x:ExcelWorksheet></x:ExcelWorksheets></x:ExcelWorkbook></xml><![endif]-->
+      <style>
+        body, table { font-family: Calibri, 'Segoe UI', Arial, sans-serif; font-size: 11pt; color: #222; }
+        .title { font-size: 15pt; font-weight: bold; color: #1B5E20; padding: 6px 0; }
+        .meta { color: #555555; font-size: 10.5pt; padding: 2px 0; }
+        .subhead { font-size: 12pt; font-weight: bold; color: #1B5E20; padding: 10px 0 4px; }
+        th { background-color: #1B5E20; color: #FFFFFF; font-weight: bold; text-align: center; border: 1px solid #777; padding: 8px 12px; }
+        td { border: 1px solid #DDD; padding: 6px 10px; }
+        .tot { background-color: #E8F5E9; font-weight: bold; border-top: 2px solid #1B5E20; border-bottom: 2px solid #1B5E20; }
+      </style>
+    </head>
+    <body>
+      <table>
+        <tr><td colspan="3" class="title">LAPORAN PENDAPATAN - ${esc(String(namaKantin).toUpperCase())}</td></tr>
+        <tr><td colspan="3" class="meta">Periode: <b>${esc(laporanState.dari)} s/d ${esc(laporanState.sampai)}</b> &nbsp;|&nbsp; Tanggal Unduh: ${esc(tglUnduh)}</td></tr>
+        <tr><td colspan="3" class="meta">Total Pendapatan: <b>${rupiah(r.total_pendapatan || 0)}</b> (${r.jumlah_order || 0} transaksi) &nbsp;|&nbsp; QRIS: <b>${rupiah(r.total_qris || 0)}</b> &nbsp;|&nbsp; Cash: <b>${rupiah(r.total_cash || 0)}</b></td></tr>
+        <tr><td colspan="3"></td></tr>
+        <tr><td colspan="3" class="subhead">RINCIAN PENDAPATAN HARIAN</td></tr>
+        <thead>
+          <tr>
+            <th style="width:45px">No</th>
+            <th style="width:220px">Tanggal</th>
+            <th style="width:160px">Total Pendapatan</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${harianRows}
+        </tbody>
+        <tfoot>
+          <tr class="tot">
+            <td style="text-align:center"></td>
+            <td>TOTAL PENDAPATAN</td>
+            <td style="text-align:right">${rupiah(r.total_pendapatan || 0)}</td>
+          </tr>
+        </tfoot>
+      </table>
+      <br>
+      <table>
+        <tr><td colspan="4" class="subhead">MENU TERLARIS</td></tr>
+        <thead>
+          <tr>
+            <th style="width:45px">No</th>
+            <th style="width:240px">Nama Menu</th>
+            <th style="width:140px">Terjual</th>
+            <th style="width:160px">Total Omzet</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${menuRows}
+        </tbody>
+      </table>
+    </body>
+    </html>`;
+
+  const blob = new Blob(["\ufeff" + html], { type: "application/vnd.ms-excel;charset=utf-8" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = `laporan_${namaKantin.toLowerCase().replace(/\s+/g, '_')}_${laporanState.dari}_${laporanState.sampai}.xls`;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  toast("Laporan Excel (.xls) berhasil diunduh", "success");
 }
 
 async function loadLaporan() {
