@@ -1028,6 +1028,13 @@ async function init() {
       const table = await api(`/api/customer/tables/${encodeURIComponent(qr)}`);
       state.table = table;
       store.set("fc_table_v2", { qr, table });
+
+      // Bersihkan query string di address bar browser agar rapi & nomor meja / kode QR tidak kebaca
+      if (window.history && window.history.replaceState) {
+        const cleanUrl = location.pathname + (location.hash || "#/");
+        window.history.replaceState({}, document.title, cleanUrl);
+      }
+
       const existingIds = getOrderIds();
       if (!saved || saved.qr !== qr) {
         // Meja berbeda -> bersihkan sesi pelanggan sebelumnya

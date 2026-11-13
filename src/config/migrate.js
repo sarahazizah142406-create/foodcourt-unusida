@@ -72,6 +72,15 @@ async function upgradeLegacy() {
   if (!(await columnInfo("tenants", "qris_nama"))) {
     await run("ALTER TABLE tenants ADD COLUMN qris_nama VARCHAR(100) NULL", "tenants.qris_nama ditambahkan");
   }
+  if (!(await columnInfo("tenants", "nama_bank"))) {
+    await run("ALTER TABLE tenants ADD COLUMN nama_bank VARCHAR(50) NULL", "tenants.nama_bank ditambahkan");
+  }
+  if (!(await columnInfo("tenants", "nomor_rekening"))) {
+    await run("ALTER TABLE tenants ADD COLUMN nomor_rekening VARCHAR(50) NULL", "tenants.nomor_rekening ditambahkan");
+  }
+  if (!(await columnInfo("tenants", "atas_nama"))) {
+    await run("ALTER TABLE tenants ADD COLUMN atas_nama VARCHAR(100) NULL", "tenants.atas_nama ditambahkan");
+  }
   const tFoto = await columnInfo("tenants", "foto");
   if (tFoto && tFoto.type !== "mediumtext") {
     await run("ALTER TABLE tenants MODIFY COLUMN foto MEDIUMTEXT NULL", "tenants.foto -> MEDIUMTEXT");

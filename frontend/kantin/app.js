@@ -852,6 +852,36 @@ function exportLaporanExcel(r) {
   toast("Laporan Excel (.xls) berhasil diunduh", "success");
 }
 
+function editRekeningModal() {
+  const me = state.me || {};
+  const s = openSheet(`
+    <div class="sheet-head"><div><h3>Rekening Pencairan QRIS</h3><p>Uang dari pesanan QRIS akan ditransfer admin ke rekening ini.</p></div>
+      <button class="btn ghost icon sm" data-close aria-label="Tutup">${icon("x")}</button></div>
+    <div class="field"><label for="rb">Nama Bank / E-Wallet</label><input class="input" id="rb" placeholder="BCA / BRI / Mandiri / DANA" value="${esc(me.nama_bank || "")}"></div>
+    <div class="field"><label for="rn">Nomor Rekening / No. HP E-Wallet</label><input class="input" id="rn" placeholder="Contoh: 0182736182" value="${esc(me.nomor_rekening || "")}"></div>
+    <div class="field"><label for="ra">Atas Nama (Nama Pemilik Rekening)</label><input class="input" id="ra" placeholder="Contoh: Siti Fatimah" value="${esc(me.atas_nama || "")}"></div>
+    <div class="form-error" id="rErr" hidden></div>
+    <div class="sheet-actions"><button class="btn ghost" data-close>Batal</button><button class="btn" id="saveRek">Simpan</button></div>`);
+  $("#saveRek", s.el).addEventListener("click", async (e) => {
+    const err = $("#rErr", s.el); err.hidden = true;
+    const body = {
+      nama_bank: $("#rb", s.el).value.trim(),
+      nomor_rekening: $("#rn", s.el).value.trim(),
+      atas_nama: $("#ra", s.el).value.trim()
+    };
+    const b = e.currentTarget; b.disabled = true;
+    try {
+      await tokenCall("/api/kasir/rekening", { method: "PATCH", body });
+      Object.assign(state.me, body);
+      s.close();
+      toast("Rekening berhasil disimpan", "success");
+      loadLaporan();
+    } catch (ex) {
+      err.textContent = ex.message; err.hidden = false; b.disabled = false;
+    }
+  });
+}
+
 async function loadLaporan() {
   const el = $("#rep"); el.innerHTML = `<div class="state"><div class="spinner"></div>Menghitung laporan...</div>`;
   if (laporanState.dari > laporanState.sampai) { el.innerHTML = `<div class="form-error">Tanggal "Dari" tidak boleh setelah "Sampai".</div>`; return; }
@@ -859,12 +889,23 @@ async function loadLaporan() {
     const r = await tokenCall(`/api/kasir/laporan?dari=${laporanState.dari}&sampai=${laporanState.sampai}`);
     state.laporanData = r;
     const max = Math.max(1, ...r.harian.map((h) => h.total));
+    const rek = state.me?.nomor_rekening
+      ? `<b>${esc(state.me.nama_bank || "Bank")}</b>: ${esc(state.me.nomor_rekening)} (a.n. ${esc(state.me.atas_nama || "-")})`
+      : "Belum diisi. Klik tombol di kanan untuk mengisi rekening tujuan transfer QRIS.";
+
     el.innerHTML = `
       <div class="stats">
         <div class="card stat money"><div class="k">Total pendapatan</div><div class="v">${rupiah(r.total_pendapatan)}</div></div>
         <div class="card stat"><div class="k">Jumlah pesanan</div><div class="v">${r.jumlah_order}</div></div>
         <div class="card stat"><div class="k">${icon("qr", "sm")}Via QRIS (disetor admin)</div><div class="v">${rupiah(r.total_qris)}</div></div>
         <div class="card stat"><div class="k">${icon("cash", "sm")}Via Cash</div><div class="v">${rupiah(r.total_cash)}</div></div>
+      </div>
+      <div class="card" style="margin-top:14px;padding:14px 16px;display:flex;justify-content:space-between;align-items:center;background:var(--bg-sub, #f8f9fa);border:1px solid #e0e0e0;border-radius:10px;gap:12px">
+        <div>
+          <div style="font-weight:600;font-size:13px;color:var(--text)">Rekening Setoran QRIS</div>
+          <div style="font-size:12px;color:var(--muted);margin-top:3px">${rek}</div>
+        </div>
+        <button class="btn soft sm" id="editRekeningBtn" style="white-space:nowrap">${icon("pencil", "sm")}Ubah</button>
       </div>
       <div class="section-title"><h2>Per hari</h2></div>
       ${r.harian.length ? `<div class="card bars">${r.harian.map((h) => `
@@ -874,6 +915,8 @@ async function loadLaporan() {
       ${r.menu_terlaris.length ? `<div class="card top-list">${r.menu_terlaris.map((m, i) => `
         <div class="r"><span class="n">${i + 1}</span><span class="t">${esc(m.nama_menu)}</span><span class="q">${m.qty} terjual<br><b style="color:var(--text)">${rupiah(m.omzet)}</b></span></div>`).join("")}</div>`
         : `<div class="card state" style="padding:28px">Belum ada data penjualan.</div>`}`;
+
+    $("#editRekeningBtn")?.addEventListener("click", editRekeningModal);
   } catch (e) { fail(e, "Gagal memuat laporan"); el.innerHTML = `<div class="state error">${icon("alert")}<h3>Gagal memuat laporan</h3><p>${esc(e.message)}</p></div>`; }
 }
 

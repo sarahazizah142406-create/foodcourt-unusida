@@ -65,6 +65,10 @@ app.use(cors({ origin: corsOrigin }));
 app.use(express.json({ limit: "100kb" }));
 
 app.get("/api/health", (req, res) => res.json({ ok: true, message: "Food Court UNUSIDA API jalan" }));
+// Shortcut URL meja: /m/:code -> redirect ke /customer/?qr=:code
+app.get("/m/:code", (req, res) => {
+  res.redirect(`/customer/?qr=${encodeURIComponent(req.params.code)}`);
+});
 app.use("/api/customer", customerRoutes);
 app.use("/api/kasir", kasirRoutes);
 app.use("/api/dev", devRoutes);

@@ -170,6 +170,14 @@ function tenantModal(t = null) {
     <div class="sheet-head"><div><h3>${t ? "Edit kantin" : "Tambah kantin"}</h3><p>${t ? "Ubah nama atau foto kantin." : (state.role === "dev" ? "Sekalian buatkan akun kasir untuk kantin ini." : "Isi nama dan foto kantin.")}</p></div>
       <button class="btn ghost icon sm" data-close aria-label="Tutup">${icon("x")}</button></div>
     <div class="field"><label for="nm">Nama kantin</label><input class="input" id="nm" maxlength="100" placeholder="Contoh: Kantin Bu Ani" value="${esc(t?.nama_kantin || "")}"></div>
+    <div style="background:var(--bg-sub, #f8f9fa);border:1px solid #e0e0e0;border-radius:10px;padding:12px;margin:10px 0">
+      <div style="font-weight:600;font-size:13px;color:var(--text);margin-bottom:8px">Rekening / E-Wallet Kantin (Pencairan QRIS)</div>
+      <div style="display:grid;grid-template-columns:1fr 1.5fr;gap:8px">
+        <div class="field" style="margin:0"><label for="nb" style="font-size:12px">Bank / E-Wallet</label><input class="input" id="nb" placeholder="BCA / BRI / DANA" value="${esc(t?.nama_bank || "")}"></div>
+        <div class="field" style="margin:0"><label for="nr" style="font-size:12px">No. Rekening / No. HP</label><input class="input" id="nr" placeholder="0182736182" value="${esc(t?.nomor_rekening || "")}"></div>
+      </div>
+      <div class="field" style="margin:8px 0 0"><label for="an" style="font-size:12px">Atas Nama (Pemilik)</label><input class="input" id="an" placeholder="Siti Fatimah" value="${esc(t?.atas_nama || "")}"></div>
+    </div>
     <div class="field" id="foto"></div>
     ${t ? "" : state.role !== "dev" ? `<p class="hint" style="margin:0 0 6px">Akun kasir untuk kantin ini dibuat oleh admin utama.</p>` : `
       <div class="field"><label for="un">Username kasir</label><input class="input" id="un" autocapitalize="none" placeholder="kasir_ani"></div>
@@ -184,6 +192,9 @@ function tenantModal(t = null) {
     if (!nama) { err.textContent = "Nama kantin wajib diisi."; err.hidden = false; return; }
     const form = new FormData();
     form.append("nama_kantin", nama);
+    form.append("nama_bank", $("#nb", s.el).value.trim());
+    form.append("nomor_rekening", $("#nr", s.el).value.trim());
+    form.append("atas_nama", $("#an", s.el).value.trim());
     if (pf.file) form.append("foto", pf.file);
     if (pf.remove) form.append("hapus_foto", "true");
     if (!t && state.role === "dev") {
@@ -268,7 +279,7 @@ function drawRekap(d) {
   const t = d.total;
   const rows = d.kantin.map((k) => `
     <tr data-rk-tenant="${k.tenant_id}" tabindex="0" role="button" aria-label="Rincian ${esc(k.nama_kantin)}">
-      <td><b>${esc(k.nama_kantin)}</b></td>
+      <td><b>${esc(k.nama_kantin)}</b>${k.nomor_rekening ? `<small style="display:block;color:#666;font-size:11px">${esc(k.nama_bank || "Bank")}: <b>${esc(k.nomor_rekening)}</b>${k.atas_nama ? ` (${esc(k.atas_nama)})` : ""}</small>` : ""}</td>
       <td class="n">${rupiah(k.qris_total)}<small>${k.qris_order} order</small></td>
       <td class="n">${rupiah(k.cash_total)}<small>${k.cash_order} order</small></td>
       <td class="n"><b>${rupiah(k.total)}</b><small>${k.jumlah_order} order</small></td>
@@ -851,7 +862,8 @@ document.addEventListener("click", async (e) => {
   const k = state.rekapData?.kantin.find((x) => x.tenant_id === Number(b.dataset.setor));
   if (!k || !k.sisa_qris) return;
   const R = state.rekap;
-  if (!(await confirmDialog({ title: `Tandai setoran ${k.nama_kantin}?`, message: `Setoran QRIS ${rupiah(k.sisa_qris)} untuk periode ${R.dari} s/d ${R.sampai} dicatat sudah dibayarkan ke kantin.`, okText: "Ya, sudah disetor" }))) return;
+  const rek = k.nomor_rekening ? `\n\nRekening Tujuan:\n${k.nama_bank || "Bank"}: ${k.nomor_rekening}${k.atas_nama ? ` (a.n. ${k.atas_nama})` : ""}` : "\n\n(Catatan: Belum ada rekening bank yang tersimpan untuk kantin ini)";
+  if (!(await confirmDialog({ title: `Tandai setoran ${k.nama_kantin}?`, message: `Setoran QRIS ${rupiah(k.sisa_qris)} untuk periode ${R.dari} s/d ${R.sampai} dicatat sudah dibayarkan ke kantin.${rek}`, okText: "Ya, sudah disetor" }))) return;
   b.disabled = true;
   try {
     await call("/api/dev/setoran", { method: "POST", body: { tenant_id: k.tenant_id, dari: R.dari, sampai: R.sampai, nominal: k.sisa_qris } });

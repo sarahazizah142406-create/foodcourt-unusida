@@ -43,7 +43,7 @@ export async function getMetrics(req, res) {
 // GET /api/dev/tenants
 export async function getAllTenants(req, res) {
   const [rows] = await pool.query(
-    `SELECT t.id, t.nama_kantin, t.foto, t.status, t.created_at,
+    `SELECT t.id, t.nama_kantin, t.foto, t.status, t.created_at, t.nama_bank, t.nomor_rekening, t.atas_nama,
             (SELECT u.username FROM users u WHERE u.tenant_id = t.id AND u.role = 'kasir' ORDER BY u.id LIMIT 1) AS kasir_username,
             (SELECT COUNT(*) FROM menus m WHERE m.tenant_id = t.id) AS menu_count
      FROM tenants t ORDER BY t.id ASC`
@@ -60,11 +60,15 @@ function validCredentials(username, password) {
   return true;
 }
 
-// POST /api/dev/tenants (multipart: nama_kantin, username?, password?, foto?)
+// POST /api/dev/tenants (multipart: nama_kantin, username?, password?, foto?, nama_bank?, nomor_rekening?, atas_nama?)
 export async function createTenant(req, res) {
   const nama = String(req.body?.nama_kantin || "").trim();
   const username = String(req.body?.username || "").trim();
   const password = String(req.body?.password || "");
+  const namaBank = String(req.body?.nama_bank || "").trim() || null;
+  const nomorRekening = String(req.body?.nomor_rekening || "").trim() || null;
+  const atasNama = String(req.body?.atas_nama || "").trim() || null;
+
   if (!nama || nama.length > 100) throw new HttpError(400, "Nama kantin wajib diisi (maks. 100 karakter)");
   const [dup] = await pool.query("SELECT id FROM tenants WHERE LOWER(TRIM(nama_kantin)) = LOWER(?) LIMIT 1", [nama]);
   if (dup[0]) throw new HttpError(409, `Kantin "${nama}" sudah ada, gunakan nama lain`);
@@ -78,8 +82,8 @@ export async function createTenant(req, res) {
   try {
     await conn.beginTransaction();
     const [t] = await conn.query(
-      "INSERT INTO tenants (nama_kantin, foto) VALUES (?, ?)",
-      [nama, foto]
+      "INSERT INTO tenants (nama_kantin, foto, nama_bank, nomor_rekening, atas_nama) VALUES (?, ?, ?, ?, ?)",
+      [nama, foto, namaBank, nomorRekening, atasNama]
     );
     if (withUser) {
       await conn.query(
@@ -98,7 +102,7 @@ export async function createTenant(req, res) {
   }
 }
 
-// PATCH /api/dev/tenants/:id (multipart: nama_kantin?, foto?, hapus_foto?)
+// PATCH /api/dev/tenants/:id (multipart: nama_kantin?, foto?, hapus_foto?, nama_bank?, nomor_rekening?, atas_nama?)
 export async function updateTenant(req, res) {
   const id = toInt(req.params.id);
   if (Number.isNaN(id)) throw new HttpError(400, "ID tidak valid");
@@ -112,13 +116,17 @@ export async function updateTenant(req, res) {
   const [dup] = await pool.query("SELECT id FROM tenants WHERE LOWER(TRIM(nama_kantin)) = LOWER(?) AND id <> ? LIMIT 1", [nama, id]);
   if (dup[0]) throw new HttpError(409, `Kantin "${nama}" sudah ada, gunakan nama lain`);
 
+  const namaBank = b.nama_bank !== undefined ? (String(b.nama_bank).trim() || null) : cur.nama_bank;
+  const nomorRekening = b.nomor_rekening !== undefined ? (String(b.nomor_rekening).trim() || null) : cur.nomor_rekening;
+  const atasNama = b.atas_nama !== undefined ? (String(b.atas_nama).trim() || null) : cur.atas_nama;
+
   let foto = b.hapus_foto === "true" ? null : cur.foto;
   const fotoFile = fileOf(req, "foto");
   if (fotoFile) foto = await saveImage(fotoFile.buffer, "foodcourt/kantin");
 
   await pool.query(
-    "UPDATE tenants SET nama_kantin = ?, foto = ? WHERE id = ?",
-    [nama, foto, id]
+    "UPDATE tenants SET nama_kantin = ?, foto = ?, nama_bank = ?, nomor_rekening = ?, atas_nama = ? WHERE id = ?",
+    [nama, foto, namaBank, nomorRekening, atasNama, id]
   );
   res.json({ message: "Kantin berhasil diperbarui" });
 }
@@ -259,14 +267,14 @@ async function rentang(req) {
 export async function getRekap(req, res) {
   const [dari, sampai] = await rentang(req);
   const [rows] = await pool.query(
-    `SELECT t.id AS tenant_id, t.nama_kantin,
+    `SELECT t.id AS tenant_id, t.nama_kantin, t.nama_bank, t.nomor_rekening, t.atas_nama,
             COUNT(CASE WHEN ot.metode_bayar = 'qris' THEN 1 END) AS qris_order,
             COALESCE(SUM(CASE WHEN ot.metode_bayar = 'qris' THEN ot.subtotal END), 0) AS qris_total,
             COUNT(CASE WHEN ot.metode_bayar = 'cash' THEN 1 END) AS cash_order,
             COALESCE(SUM(CASE WHEN ot.metode_bayar = 'cash' THEN ot.subtotal END), 0) AS cash_total
      FROM tenants t
      LEFT JOIN order_tenants ot ON ot.tenant_id = t.id AND ot.status_bayar = 'lunas' AND ot.status_order <> 'dibatalkan' AND ot.created_at >= ? AND ot.created_at < DATE_ADD(?, INTERVAL 1 DAY)
-     GROUP BY t.id, t.nama_kantin ORDER BY t.nama_kantin ASC`,
+     GROUP BY t.id, t.nama_kantin, t.nama_bank, t.nomor_rekening, t.atas_nama ORDER BY t.nama_kantin ASC`,
     [dari, sampai]
   );
   const [setor] = await pool.query(

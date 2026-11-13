@@ -39,14 +39,29 @@ export async function login(req, res) {
   res.json({ token, tenant_id: user.tenant_id, username: user.username, nama_kantin: user.nama_kantin });
 }
 
-// GET /api/kasir/me -> info kantin yang login (nama, status buka/tutup)
+// GET /api/kasir/me -> info kantin yang login (nama, status buka/tutup, rekening)
 export async function getMe(req, res) {
   const [rows] = await pool.query(
-    `SELECT id, nama_kantin, foto, status FROM tenants WHERE id = ?`,
+    `SELECT id, nama_kantin, foto, status, nama_bank, nomor_rekening, atas_nama FROM tenants WHERE id = ?`,
     [req.tenantId]
   );
   if (!rows[0]) throw new HttpError(404, "Kantin tidak ditemukan");
   res.json(rows[0]);
+}
+
+// PATCH /api/kasir/rekening -> kantin menyimpan info rekening untuk pencairan uang QRIS
+export async function updateRekening(req, res) {
+  const { nama_bank, nomor_rekening, atas_nama } = req.body || {};
+  await pool.query(
+    "UPDATE tenants SET nama_bank = ?, nomor_rekening = ?, atas_nama = ? WHERE id = ?",
+    [
+      nama_bank ? String(nama_bank).trim() : null,
+      nomor_rekening ? String(nomor_rekening).trim() : null,
+      atas_nama ? String(atas_nama).trim() : null,
+      req.tenantId
+    ]
+  );
+  res.json({ message: "Data rekening berhasil disimpan" });
 }
 
 // PATCH /api/kasir/status -> kasir buka/tutup kantinnya sendiri

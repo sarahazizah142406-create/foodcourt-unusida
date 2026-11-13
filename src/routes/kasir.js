@@ -4,7 +4,7 @@ import { authKasir } from "../middleware/authKasir.js";
 import { parseImages } from "../middleware/upload.js";
 import { wrap } from "../utils.js";
 import {
-  login, getMe, setKantinStatus, getDashboard, getOrdersMasuk, getOrderItems,
+  login, getMe, setKantinStatus, updateRekening, getDashboard, getOrdersMasuk, getOrderItems,
   updateStatusOrder, konfirmasiBayar, batalkanOrder, hapusOrder, bersihkanOrder, panggilPelanggan, listMenus, tambahMenu, updateMenu,
   updateStatusMenu, deleteMenu, getLaporan, registerPushToken, unregisterPushToken
 } from "../controllers/kasirController.js";
@@ -23,6 +23,7 @@ router.post("/login", loginLimiter, wrap(login));
 
 router.use(authKasir);
 router.get("/me", wrap(getMe));
+router.patch("/rekening", wrap(updateRekening));
 router.patch("/status", wrap(setKantinStatus));
 router.get("/dashboard", wrap(getDashboard));
 router.get("/orders", wrap(getOrdersMasuk));
