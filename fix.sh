@@ -1,4 +1,10 @@
 #!/usr/bin/env bash
-echo ":80 { reverse_proxy localhost:3000 }" > /etc/caddy/Caddyfile
+systemctl stop nginx apache2 2>/dev/null || true
+printf ":80 {\n\treverse_proxy localhost:3000\n}\n" > /etc/caddy/Caddyfile
 systemctl restart caddy
-echo "BERHASIL: Caddy aktif di HTTP port 80. Buka http://foodcourt-unusida.duckdns.org/customer/"
+if systemctl is-active --quiet caddy; then
+  echo "SUCCESS: Caddy jalan normal! Buka http://foodcourt-unusida.duckdns.org/customer/"
+else
+  echo "Status Caddy:"
+  journalctl -u caddy --no-pager -n 10
+fi
